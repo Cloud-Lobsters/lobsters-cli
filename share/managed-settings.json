@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(~/**)",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Edit(~/Documents/**)",
+      "WebSearch",
+      "WebFetch",
+      "mcp__claude_ai_Gmail__*",
+      "mcp__claude_ai_Google_Calendar__*",
+      "mcp__claude_ai_Google_Drive__*",
+      "mcp__claude_ai_Slack__*",
+      "mcp__claude_ai_Claude_Docs__*",
+      "mcp__pm__*",
+      "mcp__svelte__*",
+      "mcp__fireflies__*"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -fr *)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git push * --force*)",
+      "Bash(git push * -f*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean -fd*)",
+      "Bash(git clean -df*)",
+      "Bash(sudo *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/libexec/claude-team/rules-sync",
+            "timeout": 60,
+            "statusMessage": "Syncing team config"
+          }
+        ]
+      }
+    ]
+  }
+}

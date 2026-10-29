@@ -1,0 +1,151 @@
+#!/bin/bash
+# rules-sync: the one SessionStart hook the Cloud Lobsters policy installs.
+#
+# Installed root-owned at /usr/local/libexec/claude-team/rules-sync; changes only on
+# `claude-team upgrade`. It runs at the start of every Claude Code session and exits 0
+# whatever happened, so it can never break a session. It does four things:
+#
+#   1. fast-forwards the read-only clone of the team config repo
+#      (~/.local/share/cloud-lobsters/config). ~/.claude/CLAUDE.md imports team/CLAUDE.md
+#      from it as text.
+#   2. links skills/* and agents/* from that clone into ~/.claude/skills and ~/.claude/agents.
+#      One of yours with the same name wins. Links to skills the team dropped are removed.
+#      A skill or agent whose frontmatter mentions hooks is NOT linked: frontmatter is the
+#      one place a linked file could declare a hook, and team content may not add hooks.
+#      A linked skill has no way to add an MCP server. What it can add is text Claude reads,
+#      plus scripts Claude may be told to run: those show up by name in the session note.
+#   3. at most every 6 hours, asks GitHub for the newest claude-team release tag
+#      (`git ls-remote`: anonymous, read-only, nothing written).
+#   4. writes ~/.local/state/cloud-lobsters/status.json for the status line / menu bar, and
+#      prints one note for the top of the session when something changed.
+#
+#   rules-sync --link-only    just step 2 (claude-team setup calls this)
+
+set -u
+export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+PREFIX="${CLAUDE_TEAM_PREFIX:-/usr/local}"
+SHARE="$PREFIX/share/claude-team"
+TOOLING_REPO="Cloud-Lobsters/claude-team"
+CLAUDE="$HOME/.claude"
+REPO="$HOME/.local/share/cloud-lobsters/config"
+STATE_DIR="$HOME/.local/state/cloud-lobsters"
+STATE="$STATE_DIR/status.json"
+SYNC_STAMP="$STATE_DIR/last-sync"
+TAG_STAMP="$STATE_DIR/last-tag-check"
+TAG_CACHE="$STATE_DIR/latest-tag"
+notes=()
+mkdir -p "$STATE_DIR"
+
+quiet_git() { GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 git "$@"; }
+version_lt() {
+  local a b i; IFS=. read -ra a <<< "$1"; IFS=. read -ra b <<< "$2"
+  for i in 0 1 2; do
+    [ "${a[i]:-0}" -lt "${b[i]:-0}" ] && return 0
+    [ "${a[i]:-0}" -gt "${b[i]:-0}" ] && return 1
+  done
+  return 1
+}
+
+# 2. Links. ~/.claude/<kind> may itself be a git repo (a synced dotfiles setup): keep our links out of it.
+exclude_from_git() {
+  local d gd rel
+  d="$(dirname "$1")"
+  gd="$(git -C "$d" rev-parse --absolute-git-dir 2>/dev/null)" || return 0
+  rel="/$(git -C "$d" rev-parse --show-prefix)$(basename "$1")"
+  mkdir -p "$gd/info"
+  grep -qxF "$rel" "$gd/info/exclude" 2>/dev/null || echo "$rel" >> "$gd/info/exclude"
+}
+# declares_hooks FILE: true when the YAML frontmatter of a SKILL.md or agent file could
+# carry a hooks key. Deliberately crude and over-cautious: any "hooks" token, a flow-style
+# frontmatter ({...}) or a merge key (<<) is refused. A false positive costs a reword.
+declares_hooks() {
+  local fm
+  fm="$(awk 'NR==1 && $0!="---" {exit} NR>1 && $0=="---" {exit} NR>1 {print}' "$1" 2>/dev/null)"
+  [ -z "$fm" ] && return 1
+  printf '%s\n' "$fm" | grep -qiE 'hooks|^[[:space:]]*\{|<<' && return 0
+  return 1
+}
+link_items() { # $1 = skills | agents
+  local kind="$1" dir="$CLAUDE/$1" src dst name probe
+  [ -d "$REPO/$kind" ] || return 0
+  mkdir -p "$dir"
+  for dst in "$dir"/*; do
+    [ -L "$dst" ] || continue
+    case "$(readlink "$dst")" in "$REPO"/*)
+      [ -e "$dst" ] || { rm -f "$dst"; continue; }
+      # Linked earlier, and a later commit added hooks: unlink it now.
+      probe="$dst"; [ -d "$dst" ] && probe="$dst/SKILL.md"
+      [ -f "$probe" ] && declares_hooks "$probe" && { rm -f "$dst"; refused+=("$kind/$(basename "$dst")"); } ;;
+    esac
+  done
+  for src in "$REPO/$kind"/*; do
+    [ -e "$src" ] || continue
+    name="$(basename "$src")"; dst="$dir/$name"
+    [ -e "$dst" ] || [ -L "$dst" ] && continue
+    probe="$src"; [ -d "$src" ] && probe="$src/SKILL.md"
+    if [ -f "$probe" ] && declares_hooks "$probe"; then refused+=("$kind/$name"); continue; fi
+    ln -s "$src" "$dst" && exclude_from_git "$dst"
+  done
+}
+refused=()
+if [ "${1:-}" = --link-only ]; then link_items skills; link_items agents; exit 0; fi
+
+# 1. Pull.
+who=""
+if [ ! -d "$REPO/.git" ]; then
+  notes+=("Team config is not set up on this machine: run claude-team setup")
+elif [ "$(git -C "$REPO" symbolic-ref --short -q HEAD)" != main ]; then
+  notes+=("Team config not updated: $REPO is on a branch other than main.")
+elif [ -n "$(git -C "$REPO" status --porcelain)" ]; then
+  notes+=("Team config not updated: $REPO has local changes. It is a read-only copy; edit your own clone instead.")
+elif quiet_git -C "$REPO" fetch -q origin main 2>/dev/null; then
+  touch "$SYNC_STAMP"
+  before="$(git -C "$REPO" rev-parse HEAD)"
+  if ! git -C "$REPO" merge -q --ff-only origin/main >/dev/null 2>&1; then
+    notes+=("Team config not updated: $REPO has commits that are not on GitHub.")
+  elif [ "$before" != "$(git -C "$REPO" rev-parse HEAD)" ]; then
+    files="$(git -C "$REPO" diff --name-only "$before" HEAD)"
+    who="$(git -C "$REPO" log --format=%an "$before..HEAD" | sort -u | paste -sd, - | sed 's/,/, /g')"
+    note="Team config updated by $who:"$'\n'"$(echo "$files" | sed 's#^#    #')"
+    # Scripts are the one kind of content Claude may be told to run. Say so by name.
+    scripts="$(echo "$files" | grep -E '\.(sh|bash|zsh|js|mjs|cjs|ts|py|rb|pl)$|/bin/|/scripts/' || true)"
+    [ -n "$scripts" ] && note="$note"$'\n'"  Scripts changed (Claude may run these when a skill says so):"$'\n'"$(echo "$scripts" | sed 's#^#    #')"
+    notes+=("$note")
+  fi
+elif [ -n "$(find "$SYNC_STAMP" -mtime +7 2>/dev/null)" ]; then
+  notes+=("Team config has not updated for a week. Check: git -C $REPO fetch")
+fi
+[ -d "$REPO/.git" ] && { link_items skills; link_items agents; }
+[ ${#refused[@]} -gt 0 ] && notes+=("Not linked, because the frontmatter mentions hooks (team content may not add hooks): $(printf '%s\n' "${refused[@]}" | sort -u | paste -sd' ' -)")
+
+# 3. Newest release, at most every 6 hours (360 minutes).
+latest="$(cat "$TAG_CACHE" 2>/dev/null)"
+if [ ! -f "$TAG_STAMP" ] || [ -n "$(find "$TAG_STAMP" -mmin +360 2>/dev/null)" ]; then
+  if t="$(quiet_git ls-remote --tags --refs "https://github.com/$TOOLING_REPO" 'v[0-9]*' 2>/dev/null \
+          | sed -n 's#.*refs/tags/v##p' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)" && [ -n "$t" ]; then
+    latest="$t"; echo "$t" > "$TAG_CACHE"; touch "$TAG_STAMP"
+  fi
+fi
+installed="$(tr -d '[:space:]' < "$SHARE/VERSION" 2>/dev/null || echo 0.0.0)"
+if [ -n "$latest" ] && version_lt "$installed" "$latest"; then
+  # Say it once per new version, not every session; the status line keeps showing it.
+  [ "$(cat "$STATE_DIR/nagged" 2>/dev/null)" = "$latest" ] || { notes+=("claude-team $latest is available (you have $installed): run claude-team upgrade"); echo "$latest" > "$STATE_DIR/nagged"; }
+fi
+
+# 4. status.json.
+head="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
+sync="$([ -f "$SYNC_STAMP" ] && date -u -r "$SYNC_STAMP" +%FT%TZ 2>/dev/null)"
+if [ ! -f "$PREFIX/bin/claude-team" ]; then state=not-installed
+elif [ -n "$latest" ] && version_lt "$installed" "$latest"; then state=update-available
+elif [ -n "$(find "$SYNC_STAMP" -mtime +7 2>/dev/null)" ]; then state=stale
+else state=synced; fi
+jq -n --arg inst "$installed" --arg lat "$latest" --arg head "$head" --arg sync "$sync" --arg state "$state" --arg who "$who" '{
+  tooling: {installed: $inst, latest: (if $lat == "" then null else $lat end)},
+  rules:   {head: (if $head == "" then null else $head end), lastSync: (if $sync == "" then null else $sync end),
+            changedBy: (if $who == "" then [] else ($who | split(", ")) end)},
+  state:   $state, updatedAt: (now | todate)}' > "$STATE.tmp" 2>/dev/null && mv "$STATE.tmp" "$STATE"
+
+[ ${#notes[@]} = 0 ] && exit 0
+jq -n --arg m "$(printf '%s\n' "${notes[@]}")" '{systemMessage: $m}'
+exit 0
