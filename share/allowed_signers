@@ -1,8 +1,8 @@
-# Maintainer keys that may sign a claude-team release. Format: ssh allowed_signers.
-# One line per maintainer, principal release@cloudlobsters.com, namespace claude-team.
-# The installed copy of this file is what `claude-team upgrade` trusts, so a new key gets
+# Maintainer keys that may sign a claude-lobster release. Format: ssh allowed_signers.
+# One line per maintainer, principal release@cloudlobsters.com, namespace claude-lobster.
+# The installed copy of this file is what `claude-lobster upgrade` trusts, so a new key gets
 # in only through a release signed by an existing one.
 #
-# release@cloudlobsters.com namespaces="claude-team" ssh-ed25519 AAAA... duncan (1Password)
-# release@cloudlobsters.com namespaces="claude-team" ssh-ed25519 AAAA... <second maintainer> (1Password)
-release@cloudlobsters.com namespaces="claude-team" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII4ekPr/GQcnP7xCan0l2HkQ2Opp22rGInyszAN1KfHX nemo (1Password: Employee/claude-team release key)
+# release@cloudlobsters.com namespaces="claude-lobster" ssh-ed25519 AAAA... duncan (1Password)
+# release@cloudlobsters.com namespaces="claude-lobster" ssh-ed25519 AAAA... <second maintainer> (1Password)
+release@cloudlobsters.com namespaces="claude-lobster" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII4ekPr/GQcnP7xCan0l2HkQ2Opp22rGInyszAN1KfHX nemo (1Password: Employee/claude-team release key)

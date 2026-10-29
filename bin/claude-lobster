@@ -1,23 +1,23 @@
 #!/bin/bash
-# claude-team: the Cloud Lobsters policy layer for Claude Code, on this machine.
+# claude-lobster: the Cloud Lobsters policy layer for Claude Code, on this machine.
 #
-# This file is installed root-owned at /usr/local/bin/claude-team and changes only when
-# someone runs `claude-team upgrade` and types their password. Nothing it fetches at run
+# This file is installed root-owned at /usr/local/bin/claude-lobster and changes only when
+# someone runs `claude-lobster upgrade` and types their password. Nothing it fetches at run
 # time is ever executed: the team rules are text, the team plugin is prompts, and the
 # policy it installs is what stops either from being anything else.
 #
-#   claude-team setup              install or repair (asks for your password once)
-#   claude-team check              only report; change nothing
-#   claude-team upgrade [X.Y.Z]    fetch a release, verify its signature, show the diff, install
-#   claude-team status             refresh and print ~/.local/state/cloud-lobsters/status.json
-#   claude-team remove             take the team setup out again
-#   claude-team statusline         one short token for the Claude Code status line
-#   claude-team version
+#   claude-lobster setup              install or repair (asks for your password once)
+#   claude-lobster check              only report; change nothing
+#   claude-lobster upgrade [X.Y.Z]    fetch a release, verify its signature, show the diff, install
+#   claude-lobster status             refresh and print ~/.local/state/cloud-lobsters/status.json
+#   claude-lobster remove             take the team setup out again
+#   claude-lobster statusline         one short token for the Claude Code status line
+#   claude-lobster version
 #
 # Layout on disk (all root-owned, all written by `install-files`):
-#   /usr/local/bin/claude-team                  this script
-#   /usr/local/libexec/claude-team/rules-sync   the only SessionStart hook; pulls the rules
-#   /usr/local/share/claude-team/               VERSION, allowed_signers, managed-settings.json,
+#   /usr/local/bin/claude-lobster                  this script
+#   /usr/local/libexec/claude-lobster/rules-sync   the only SessionStart hook; pulls the rules
+#   /usr/local/share/claude-lobster/               VERSION, allowed_signers, managed-settings.json,
 #                                               mcp-servers.json, swiftbar/, waybar/
 # And per user:
 #   ~/.local/share/cloud-lobsters/config        read-only clone of the private repo: CLAUDE.md imports
@@ -27,18 +27,18 @@
 set -u
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-PREFIX="${CLAUDE_TEAM_PREFIX:-/usr/local}"
-SHARE="$PREFIX/share/claude-team"
-LIBEXEC="$PREFIX/libexec/claude-team"
-TOOLING_REPO="Cloud-Lobsters/claude-team"          # public: releases of this package
+PREFIX="${CLAUDE_LOBSTER_PREFIX:-/usr/local}"
+SHARE="$PREFIX/share/claude-lobster"
+LIBEXEC="$PREFIX/libexec/claude-lobster"
+TOOLING_REPO="Cloud-Lobsters/claude-lobster"          # public: releases of this package
 CONTENT_REPO="Cloud-Lobsters/claude-config-team"   # private: rules, skills, agents (the plugin marketplace)
 SIGNER="release@cloudlobsters.com"                 # principal in allowed_signers
-NAMESPACE="claude-team"                            # ssh-keygen -Y namespace
+NAMESPACE="claude-lobster"                            # ssh-keygen -Y namespace
 
 case "$(uname -s)" in
   Darwin) OS=mac;   MANAGED_DIR="/Library/Application Support/ClaudeCode/managed-settings.d" ;;
   Linux)  OS=linux; MANAGED_DIR="/etc/claude-code/managed-settings.d" ;;
-  *) echo "claude-team: unsupported OS $(uname -s)" >&2; exit 1 ;;
+  *) echo "claude-lobster: unsupported OS $(uname -s)" >&2; exit 1 ;;
 esac
 MANAGED="$MANAGED_DIR/cloud-lobsters.json"
 
@@ -50,20 +50,20 @@ RULES="$HOME/.local/share/cloud-lobsters/config"       # read-only clone of CONT
 IMPORT="@~/.local/share/cloud-lobsters/config/team/CLAUDE.md"
 STATE_DIR="$HOME/.local/state/cloud-lobsters"
 STATE="$STATE_DIR/status.json"
-MCP_STATE="$CLAUDE/.claude-team-mcp"               # line 1: hash of mcp-servers.json; then the servers we manage
+MCP_STATE="$CLAUDE/.claude-lobster-mcp"               # line 1: hash of mcp-servers.json; then the servers we manage
 REQUIRED_MCP="pm"
 OPUS="claude-opus-5-5"
-# Where your code lives, for the basecamp clone. Given once (CODE_DIR=... claude-team setup, or by the
+# Where your code lives, for the basecamp clone. Given once (CODE_DIR=... claude-lobster setup, or by the
 # setup skills, which export it), remembered in ~/.config/cloud-lobsters/code-dir for every later run.
 CODE_DIR_FILE="$HOME/.config/cloud-lobsters/code-dir"
-if [ -n "${CLAUDE_TEAM_CODE_DIR:-${CODE_DIR:-}}" ]; then
-  CODE_DIR="${CLAUDE_TEAM_CODE_DIR:-$CODE_DIR}"
+if [ -n "${CLAUDE_LOBSTER_CODE_DIR:-${CODE_DIR:-}}" ]; then
+  CODE_DIR="${CLAUDE_LOBSTER_CODE_DIR:-$CODE_DIR}"
   mkdir -p "$(dirname "$CODE_DIR_FILE")" && echo "$CODE_DIR" > "$CODE_DIR_FILE"
 elif [ -s "$CODE_DIR_FILE" ]; then CODE_DIR="$(tr -d '[:space:]' < "$CODE_DIR_FILE")"
 else CODE_DIR="$HOME/Documents"; fi
 BASECAMP="$CODE_DIR/basecamp"
 
-installed_version() { tr -d '[:space:]' < "$SHARE/VERSION" 2>/dev/null || echo 0.0.0; }
+installed_version() { { tr -d '[:space:]' < "$SHARE/VERSION"; } 2>/dev/null || echo 0.0.0; }
 
 # ---- output helpers (same vocabulary as the old install.sh) ---------------------------
 MODE=install; todo=0
@@ -72,7 +72,7 @@ note()  { [ $MODE = quiet ] || printf '  \033[2m- %s\033[0m\n' "$1"; }
 need()  { printf '  \033[33m•\033[0m %s\n' "$1"; todo=$((todo+1)); }
 doing() { printf '  \033[36m→\033[0m %s\n' "$1"; }
 step()  { printf '\n\033[1m%s\033[0m\n' "$1"; }
-die()   { printf 'claude-team: %s\n' "$1" >&2; exit 1; }
+die()   { printf 'claude-lobster: %s\n' "$1" >&2; exit 1; }
 # act: in --check mode only report; otherwise say it and return 0 so the caller does it.
 act()   { if [ $MODE = check ]; then need "$1"; return 1; fi; doing "$1"; return 0; }
 write_through() { local tmp; tmp="$(mktemp)"; cat > "$tmp" && cat "$tmp" > "$1"; rm -f "$tmp"; }
@@ -98,7 +98,7 @@ latest_version() {
 # ---- banner: the lobster -------------------------------------------------------------
 # One character per pixel, two pixel rows per terminal line (▀ ▄ half blocks), drawn in
 # truecolor when the terminal says it has it and 256 colours otherwise. Three frames make
-# the pincer snap once. This block is identical in install.sh and bin/claude-team (the
+# the pincer snap once. This block is identical in install.sh and bin/claude-lobster (the
 # installer runs before anything is on disk); scripts/release checks that it still is.
 LOBSTER=(
   '......R...............R.................'
@@ -148,22 +148,22 @@ lobster_frame() {
     FRAME[${#FRAME[@]}]="$line\033[0m"
   done
 }
-# lobster_banner DETAIL TAGLINE: "Cloud Lobsters", "claude-team DETAIL" and TAGLINE beside the
+# lobster_banner DETAIL TAGLINE: "Cloud Lobsters", "claude-lobster DETAIL" and TAGLINE beside the
 # lobster (under it on a narrow terminal), animated once. Just the words when stdout is not a
-# UTF-8 terminal, NO_COLOR is set or TERM is dumb. CLAUDE_TEAM_NO_BANNER=1 prints nothing.
+# UTF-8 terminal, NO_COLOR is set or TERM is dumb. CLAUDE_LOBSTER_NO_BANNER=1 prints nothing.
 lobster_banner() {
   local detail="$1" tagline="$2" i n cols
   local -a text f0 f1 f2
-  [ -z "${CLAUDE_TEAM_NO_BANNER:-}" ] || return 0
+  [ -z "${CLAUDE_LOBSTER_NO_BANNER:-}" ] || return 0
   if [ ! -t 1 ] || [ -n "${NO_COLOR:-}" ] || [ "${TERM:-dumb}" = dumb ] \
      || ! { echo "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" | grep -qi 'utf-\{0,1\}8'; }; then
-    printf '\nCloud Lobsters · claude-team%s · %s\n\n' "${detail:+ $detail}" "$tagline"; return 0
+    printf '\nCloud Lobsters · claude-lobster%s · %s\n\n' "${detail:+ $detail}" "$tagline"; return 0
   fi
   case ${COLORTERM:-} in
     truecolor|24bit) LOB_DEPTH=2; LOB_R='227;57;43'; LOB_M='196;42;34'; LOB_D='140;22;22'; LOB_H='255;118;98'; LOB_P='242;150;140'; LOB_K='24;12;12' ;;
     *)               LOB_DEPTH=5; LOB_R=160; LOB_M=124; LOB_D=88; LOB_H=209; LOB_P=217; LOB_K=232 ;;
   esac
-  text=("\033[1mCloud Lobsters\033[0m" "\033[38;$LOB_DEPTH;${LOB_R}mclaude-team\033[0m${detail:+ $detail}" "\033[2m$tagline\033[0m")
+  text=("\033[1mCloud Lobsters\033[0m" "\033[38;$LOB_DEPTH;${LOB_R}mclaude-lobster\033[0m${detail:+ $detail}" "\033[2m$tagline\033[0m")
   lobster_frame;                      f0=("${FRAME[@]}")
   lobster_frame "${LOBSTER_OPEN[@]}"; f1=("${FRAME[@]}")
   lobster_frame "${LOBSTER_SHUT[@]}"; f2=("${FRAME[@]}")
@@ -189,7 +189,7 @@ lobster_banner() {
 write_status() { # $1 latest tooling version or "", $2 rules head, $3 rules last sync (ISO) or "", $4.. changed-by
   local inst lat state
   inst="$(installed_version)"; lat="${1:-}"
-  if [ ! -x "$PREFIX/bin/claude-team" ] || [ ! -f "$MANAGED" ]; then state=not-installed
+  if [ ! -x "$PREFIX/bin/claude-lobster" ] || [ ! -f "$MANAGED" ]; then state=not-installed
   elif [ -n "$lat" ] && version_lt "$inst" "$lat"; then state=update-available
   elif [ -n "${3:-}" ] && [ -n "$(find "$STATE_DIR/last-sync" -mtime +7 2>/dev/null)" ]; then state=stale
   else state=synced; fi
@@ -232,7 +232,7 @@ cmd_statusline() {
   input="$(cat)"
   own="$(cat "$OWN_STATUSLINE" 2>/dev/null)"
   # Before setup has wrapped it, an own command may still sit in settings.json; honour that too.
-  [ -n "$own" ] || { own="$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)"; [ "$own" = "$PREFIX/bin/claude-team statusline" ] && own=""; }
+  [ -n "$own" ] || { own="$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)"; [ "$own" = "$PREFIX/bin/claude-lobster statusline" ] && own=""; }
   out=""; [ -n "$own" ] && out="$(printf '%s' "$input" | bash -c "$own" 2>/dev/null)"
   if [ -z "$out" ]; then team_segment; echo; return; fi
   first="${out%%$'\n'*}"; rest="${out#"$first"}"
@@ -274,6 +274,17 @@ setup_migrate_old() {
       act "unlink $(tilde "$f") (rules-sync relinks it from $(tilde "$RULES"))" && rm -f "$f" ;;
     esac
   done
+  # Until v0.2.0 this package was called claude-team. Take that copy out; the status line and
+  # the MCP state move over; setup_managed replaces the policy file (new hook path) below.
+  if [ -e "$PREFIX/bin/claude-team" ] || [ -d "$PREFIX/share/claude-team" ] || [ -d "$PREFIX/libexec/claude-team" ]; then
+    act "remove the old claude-team install from $PREFIX (asks for your password)" \
+      && sudo rm -rf "$PREFIX/bin/claude-team" "$PREFIX/libexec/claude-team" "$PREFIX/share/claude-team"
+  fi
+  if [ "$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)" = "$PREFIX/bin/claude-team statusline" ]; then
+    act "point the status line at claude-lobster" \
+      && jq --arg sl "$PREFIX/bin/claude-lobster statusline" '.statusLine.command = $sl' "$SETTINGS" | write_through "$SETTINGS"
+  fi
+  [ -f "$CLAUDE/.claude-team-mcp" ] && [ ! -f "$MCP_STATE" ] && mv "$CLAUDE/.claude-team-mcp" "$MCP_STATE"
   # The old script remembered which MCP servers it added; those are the same servers.
   [ -f "$CLAUDE/.claude-config-team-mcp" ] && [ ! -f "$MCP_STATE" ] && mv "$CLAUDE/.claude-config-team-mcp" "$MCP_STATE"
   return 0
@@ -288,7 +299,7 @@ setup_managed() {
     else ok "team policy is off"; fi
     return
   fi
-  [ -f "$src" ] || die "$src is missing; run claude-team upgrade"
+  [ -f "$src" ] || die "$src is missing; run claude-lobster upgrade"
   if [ -f "$MANAGED" ] && [ ! -L "$MANAGED" ] && cmp -s "$src" "$MANAGED"; then ok "team policy is on ($(tilde "$MANAGED"))"; return; fi
   if [ -f "$MANAGED" ] && [ ! -L "$MANAGED" ]; then
     echo "  policy changes:"; diff -u "$MANAGED" "$src" | sed -n '3,$p' | sed 's/^/    /'
@@ -340,7 +351,7 @@ setup_model() {
       | (if has("alwaysThinkingEnabled") then . else .alwaysThinkingEnabled = true end)
       | (if .modelSettings[$m].effortLevel then . else .modelSettings[$m].effortLevel = "xhigh" end)' "$SETTINGS" | write_through "$SETTINGS"
   fi
-  local own ours="$PREFIX/bin/claude-team statusline"
+  local own ours="$PREFIX/bin/claude-lobster statusline"
   own="$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)"
   if [ "$own" = "$ours" ]; then ok "status line shows the 🦞 team segment$([ -s "$OWN_STATUSLINE" ] && echo ' after your own')"
   elif [ -n "$own" ]; then
@@ -363,7 +374,7 @@ setup_mcp() {
     for name in $ours; do act "remove MCP server $name" && claude mcp remove -s user "$name" </dev/null >/dev/null 2>&1; done
     rm -f "$MCP_STATE"; return
   fi
-  [ -f "$src" ] || die "$src is missing; run claude-team upgrade"
+  [ -f "$src" ] || die "$src is missing; run claude-lobster upgrade"
   hash="$(sha256 < "$src" | cut -c1-40)"
   current="$(jq '.mcpServers // {}' "$CONFIG" 2>/dev/null || echo '{}')"
   op_ok=""; op_err=""
@@ -378,15 +389,15 @@ setup_mcp() {
         if op_err="$(op vault list </dev/null 2>&1 >/dev/null)"; then op_ok=1
         else op_ok=0; op_err="$(echo "$op_err" | sed 's/^\[ERROR\] [0-9/: ]*//' | head -1)"; fi
       fi
-      if [ "$op_ok" = 0 ]; then need "$name not added. 1Password said: ${op_err:-no answer}. Approve its prompt if one appeared, or unlock it, or turn on Settings → Developer → Integrate with 1Password CLI; then run claude-team setup again"; failed=1; continue; fi
+      if [ "$op_ok" = 0 ]; then need "$name not added. 1Password said: ${op_err:-no answer}. Approve its prompt if one appeared, or unlock it, or turn on Settings → Developer → Integrate with 1Password CLI; then run claude-lobster setup again"; failed=1; continue; fi
       field="$(echo "$raw" | grep -o 'op://[^ }"]*' | head -1)"
-      if ! want="$(echo "$raw" | op inject 2>/tmp/claude-team-op.$$)"; then
-        op_err="$(sed 's/^\[ERROR\] [0-9/: ]*//' /tmp/claude-team-op.$$ | head -1)"; rm -f /tmp/claude-team-op.$$
-        if [ "$name" = "$REQUIRED_MCP" ]; then need "$name is required but 1Password has no value at $field (${op_err:-unknown error}). Create the item (see README), then run claude-team setup again"
+      if ! want="$(echo "$raw" | op inject 2>/tmp/claude-lobster-op.$$)"; then
+        op_err="$(sed 's/^\[ERROR\] [0-9/: ]*//' /tmp/claude-lobster-op.$$ | head -1)"; rm -f /tmp/claude-lobster-op.$$
+        if [ "$name" = "$REQUIRED_MCP" ]; then need "$name is required but 1Password has no value at $field (${op_err:-unknown error}). Create the item (see README), then run claude-lobster setup again"
         else note "$name: skipped, no value at $field"; fi
         continue
       fi
-      rm -f /tmp/claude-team-op.$$
+      rm -f /tmp/claude-lobster-op.$$
     else want="$raw"; fi
     want="$(echo "$want" | jq -cS .)"
     if [ "$want" = "$have" ]; then keep+=("$name"); ok "MCP $name"; continue; fi
@@ -417,8 +428,9 @@ setup_extras() {
   if [ $OS = mac ]; then
     local sb; sb="$(defaults read com.ameba.SwiftBar PluginDirectory 2>/dev/null)"
     if [ -n "$sb" ] && [ -d "$sb" ]; then
-      if [ "$(readlink "$sb/claude-team.5m.sh" 2>/dev/null)" = "$SHARE/swiftbar/claude-team.5m.sh" ]; then ok "SwiftBar plugin"
-      elif act "add the SwiftBar plugin"; then ln -sfn "$SHARE/swiftbar/claude-team.5m.sh" "$sb/claude-team.5m.sh"; fi
+      [ -L "$sb/claude-team.5m.sh" ] && rm -f "$sb/claude-team.5m.sh"   # the plugin's name before v0.2.0
+      if [ "$(readlink "$sb/claude-lobster.5m.sh" 2>/dev/null)" = "$SHARE/swiftbar/claude-lobster.5m.sh" ]; then ok "SwiftBar plugin"
+      elif act "add the SwiftBar plugin"; then ln -sfn "$SHARE/swiftbar/claude-lobster.5m.sh" "$sb/claude-lobster.5m.sh"; fi
     else note "SwiftBar not found; install it for a menu-bar icon (brew install --cask swiftbar), then run setup again"; fi
   else
     note "Waybar: add the module from $SHARE/waybar/README.md"
@@ -437,7 +449,7 @@ run_setup() {
     for f in "$CLAUDE"/skills/* "$CLAUDE"/agents/*; do
       [ -L "$f" ] && case "$(readlink "$f")" in "$RULES"/*) doing "unlink $(tilde "$f")"; rm -f "$f" ;; esac
     done
-    if [ "$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)" = "$PREFIX/bin/claude-team statusline" ]; then
+    if [ "$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)" = "$PREFIX/bin/claude-lobster statusline" ]; then
       if [ -s "$OWN_STATUSLINE" ]; then
         doing "put your own status line back"
         jq --arg sl "$(cat "$OWN_STATUSLINE")" '.statusLine.command = $sl' "$SETTINGS" | write_through "$SETTINGS"
@@ -445,19 +457,19 @@ run_setup() {
       rm -f "$OWN_STATUSLINE"
     fi
     rm -f "$STATE"
-    step "Done"; echo "  Left in place: $(tilde "$RULES"), $(tilde "$BASECAMP") and your model settings. The package itself: sudo rm -r $PREFIX/bin/claude-team $LIBEXEC $SHARE"
+    step "Done"; echo "  Left in place: $(tilde "$RULES"), $(tilde "$BASECAMP") and your model settings. The package itself: sudo rm -r $PREFIX/bin/claude-lobster $LIBEXEC $SHARE"
     return
   fi
   setup_migrate_old
   setup_managed; setup_rules; setup_model; setup_mcp; setup_extras
   [ $MODE = check ] || { mkdir -p "$STATE_DIR"; touch "$STATE_DIR/last-sync"; cmd_status >/dev/null; }
   step "Done"
-  if [ $todo = 0 ]; then echo "  All set (claude-team $(installed_version)). Start a new Claude Code session; accept the one-time managed-hook dialog; sign in to Ref with /mcp."
-  else echo "  $todo thing(s) still to do$([ $MODE = check ] && echo '. Run claude-team setup to do them')."; fi
+  if [ $todo = 0 ]; then echo "  All set (claude-lobster $(installed_version)). Start a new Claude Code session; accept the one-time managed-hook dialog; sign in to Ref with /mcp."
+  else echo "  $todo thing(s) still to do$([ $MODE = check ] && echo '. Run claude-lobster setup to do them')."; fi
 }
 
 # ---- releases: verify, install-files, upgrade --------------------------------------
-# verify_release DIR: DIR holds claude-team-X.Y.Z.tar.gz, SHA256SUMS, SHA256SUMS.sig.
+# verify_release DIR: DIR holds claude-lobster-X.Y.Z.tar.gz, SHA256SUMS, SHA256SUMS.sig.
 # $2 = allowed_signers to trust (the installed one on upgrade; the tarball's own on first install).
 verify_release() {
   local dir="$1" signers="$2"
@@ -471,15 +483,15 @@ verify_release() {
 cmd_install_files() {
   local src="$1"
   [ "$(id -u)" = 0 ] || die "install-files must run as root"
-  [ -f "$src/VERSION" ] && [ -x "$src/bin/claude-team" ] || die "$src is not a claude-team tree"
+  [ -f "$src/VERSION" ] && [ -x "$src/bin/claude-lobster" ] || die "$src is not a claude-lobster tree"
   install -d -m 0755 "$PREFIX/bin" "$LIBEXEC" "$SHARE/swiftbar" "$SHARE/waybar"
-  install -m 0755 "$src/bin/claude-team" "$PREFIX/bin/claude-team"
+  install -m 0755 "$src/bin/claude-lobster" "$PREFIX/bin/claude-lobster"
   install -m 0755 "$src/libexec/rules-sync" "$LIBEXEC/rules-sync"
   install -m 0644 "$src/VERSION" "$src/share/allowed_signers" "$src/share/managed-settings.json" "$src/share/mcp-servers.json" "$SHARE/"
-  install -m 0755 "$src/share/swiftbar/claude-team.5m.sh" "$SHARE/swiftbar/"
-  install -m 0755 "$src/share/waybar/claude-team.sh" "$SHARE/waybar/"
+  install -m 0755 "$src/share/swiftbar/claude-lobster.5m.sh" "$SHARE/swiftbar/"
+  install -m 0755 "$src/share/waybar/claude-lobster.sh" "$SHARE/waybar/"
   install -m 0644 "$src/share/waybar/README.md" "$SHARE/waybar/"
-  echo "installed claude-team $(cat "$src/VERSION") to $PREFIX"
+  echo "installed claude-lobster $(cat "$src/VERSION") to $PREFIX"
 }
 
 cmd_upgrade() {
@@ -490,36 +502,36 @@ cmd_upgrade() {
     want="$lat"
     if ! version_lt "$inst" "$want"; then
       lobster_banner "v$inst" "up to date"
-      echo "claude-team $inst is current."; cmd_status >/dev/null; return 0
+      echo "claude-lobster $inst is current."; cmd_status >/dev/null; return 0
     fi
   elif version_lt "$want" "$inst"; then
     echo "Note: $want is older than the installed $inst. Installing it anyway because you named it." >&2
   fi
   lobster_banner "v$inst → v$want" "Claude Code for the whole team"
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
-  asset="claude-team-$want.tar.gz"; base="https://github.com/$TOOLING_REPO/releases/download/v$want"
-  echo "Fetching claude-team $want..."
+  asset="claude-lobster-$want.tar.gz"; base="https://github.com/$TOOLING_REPO/releases/download/v$want"
+  echo "Fetching claude-lobster $want..."
   for f in "$asset" SHA256SUMS SHA256SUMS.sig; do
     curl -fsSL --retry 2 -o "$tmp/$f" "$base/$f" 2>/dev/null \
       || gh release download "v$want" --repo "$TOOLING_REPO" --pattern "$f" --dir "$tmp" >/dev/null 2>&1 \
       || die "could not download $f for v$want"
   done
   verify_release "$tmp" "$SHARE/allowed_signers"
-  tar -xzf "$tmp/$asset" -C "$tmp" && tree="$tmp/claude-team-$want"
+  tar -xzf "$tmp/$asset" -C "$tmp" && tree="$tmp/claude-lobster-$want"
   [ -d "$tree" ] || die "unexpected archive layout"
   echo "Verified: signed by a maintainer, checksums match."
   echo
   echo "Changes to what runs on this machine ($inst → $want):"
   diff -u "$SHARE/managed-settings.json" "$tree/share/managed-settings.json" | sed -n '3,$p' | sed 's/^/  /' || true
   diff -q "$LIBEXEC/rules-sync" "$tree/libexec/rules-sync" >/dev/null 2>&1 || echo "  rules-sync (the session hook) changed; diff: diff -u $LIBEXEC/rules-sync $tree/libexec/rules-sync"
-  diff -q "$PREFIX/bin/claude-team" "$tree/bin/claude-team" >/dev/null 2>&1 || echo "  claude-team (this CLI) changed"
+  diff -q "$PREFIX/bin/claude-lobster" "$tree/bin/claude-lobster" >/dev/null 2>&1 || echo "  claude-lobster (this CLI) changed"
   diff -q "$SHARE/mcp-servers.json" "$tree/share/mcp-servers.json" >/dev/null 2>&1 || echo "  mcp-servers.json changed"
   echo
   printf 'Install %s? [y/N] ' "$want"; read -r yn </dev/tty
   case "$yn" in y|Y|yes) ;; *) echo "Not installed."; return 1 ;; esac
-  sudo "$PREFIX/bin/claude-team" install-files "$tree" || die "install failed"
+  sudo "$PREFIX/bin/claude-lobster" install-files "$tree" || die "install failed"
   echo; echo "Applying the new policy..."
-  CLAUDE_TEAM_NO_BANNER=1 exec "$PREFIX/bin/claude-team" setup
+  CLAUDE_LOBSTER_NO_BANNER=1 exec "$PREFIX/bin/claude-lobster" setup
 }
 
 # ---- main ----------------------------------------------------------------------------
