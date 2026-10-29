@@ -53,7 +53,7 @@ STATE="$STATE_DIR/status.json"
 MCP_STATE="$CLAUDE/.claude-team-mcp"               # line 1: hash of mcp-servers.json; then the servers we manage
 REQUIRED_MCP="pm"
 OPUS="claude-opus-5-5"
-CODE_DIR="${CLAUDE_TEAM_CODE_DIR:-$HOME/Documents}"
+CODE_DIR="${CLAUDE_TEAM_CODE_DIR:-${CODE_DIR:-$HOME/Documents}}"   # the setup skills export CODE_DIR
 BASECAMP="$CODE_DIR/basecamp"
 
 installed_version() { tr -d '[:space:]' < "$SHARE/VERSION" 2>/dev/null || echo 0.0.0; }
