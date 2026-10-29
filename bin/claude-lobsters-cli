@@ -53,6 +53,8 @@ STATE="$STATE_DIR/status.json"
 MCP_STATE="$CLAUDE/.claude-lobsters-cli-mcp"               # line 1: hash of mcp-servers.json; then the servers we manage
 REQUIRED_MCP="pm"
 OPUS="claude-opus-5-5"
+SWIFTBAR_APP="/Applications/SwiftBar.app"                  # Mac menu bar: SwiftBar runs share/swiftbar/
+SWIFTBAR_LOGIN="$HOME/Library/LaunchAgents/com.cloud-lobsters.swiftbar.plist"   # starts it at login
 # Where your code lives, for the basecamp clone. Given once (CODE_DIR=... claude-lobsters-cli setup, or by the
 # setup skills, which export it), remembered in ~/.config/cloud-lobsters/code-dir for every later run.
 CODE_DIR_FILE="$HOME/.config/cloud-lobsters/code-dir"
@@ -426,12 +428,39 @@ setup_extras() {
     gh repo clone Cloud-Lobsters/basecamp "$BASECAMP" -- -q || need "could not clone basecamp"
   fi
   if [ $OS = mac ]; then
-    local sb; sb="$(defaults read com.ameba.SwiftBar PluginDirectory 2>/dev/null)"
-    if [ -n "$sb" ] && [ -d "$sb" ]; then
-      [ -L "$sb/claude-team.5m.sh" ] && rm -f "$sb/claude-team.5m.sh"   # the plugin's name before v0.2.0
-      if [ "$(readlink "$sb/claude-lobsters-cli.5m.sh" 2>/dev/null)" = "$SHARE/swiftbar/claude-lobsters-cli.5m.sh" ]; then ok "SwiftBar plugin"
-      elif act "add the SwiftBar plugin"; then ln -sfn "$SHARE/swiftbar/claude-lobsters-cli.5m.sh" "$sb/claude-lobsters-cli.5m.sh"; fi
-    else note "SwiftBar not found; install it for a menu-bar icon (brew install --cask swiftbar), then run setup again"; fi
+    # The menu-bar icon is a SwiftBar plugin. SwiftBar asks for a plugin folder on first open,
+    # so set one first; it starts at login through a LaunchAgent of ours (`remove` takes it out).
+    local sb
+    if [ -d "$SWIFTBAR_APP" ]; then ok "SwiftBar"
+    elif ! command -v brew >/dev/null; then need "SwiftBar (the menu-bar icon) needs Homebrew: install it, then run setup again"
+    elif act "install SwiftBar, for the menu-bar icon"; then brew install --cask swiftbar >/dev/null || need "could not install SwiftBar"; fi
+    if [ -d "$SWIFTBAR_APP" ]; then
+      sb="$(defaults read com.ameba.SwiftBar PluginDirectory 2>/dev/null)"
+      if [ -z "$sb" ] && act "give SwiftBar a plugin folder"; then
+        sb="$HOME/Library/Application Support/SwiftBar/Plugins"
+        defaults write com.ameba.SwiftBar PluginDirectory "$sb"
+      fi
+      if [ -n "$sb" ]; then
+        [ $MODE = check ] || mkdir -p "$sb"
+        [ -L "$sb/claude-team.5m.sh" ] && rm -f "$sb/claude-team.5m.sh"   # the plugin's name before v0.2.0
+        if [ "$(readlink "$sb/claude-lobsters-cli.5m.sh" 2>/dev/null)" = "$SHARE/swiftbar/claude-lobsters-cli.5m.sh" ]; then ok "SwiftBar plugin"
+        elif act "add the SwiftBar plugin"; then ln -sfn "$SHARE/swiftbar/claude-lobsters-cli.5m.sh" "$sb/claude-lobsters-cli.5m.sh"; fi
+      fi
+      if [ -f "$SWIFTBAR_LOGIN" ]; then ok "SwiftBar starts at login"
+      elif act "start SwiftBar at login"; then
+        mkdir -p "$(dirname "$SWIFTBAR_LOGIN")"
+        cat > "$SWIFTBAR_LOGIN" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$(basename "$SWIFTBAR_LOGIN" .plist)</string>
+  <key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-a</string><string>SwiftBar</string></array>
+  <key>RunAtLoad</key><true/>
+</dict></plist>
+EOF
+      fi
+      [ $MODE = check ] || pgrep -xq SwiftBar || open -a SwiftBar
+    fi
   else
     note "Waybar: add the module from $SHARE/waybar/README.md"
   fi
@@ -456,8 +485,13 @@ run_setup() {
       else doing "remove the team status line"; jq 'del(.statusLine)' "$SETTINGS" | write_through "$SETTINGS"; fi
       rm -f "$OWN_STATUSLINE"
     fi
+    if [ $OS = mac ]; then
+      local sb; sb="$(defaults read com.ameba.SwiftBar PluginDirectory 2>/dev/null)"
+      [ -n "$sb" ] && [ -L "$sb/claude-lobsters-cli.5m.sh" ] && { doing "remove the SwiftBar plugin"; rm -f "$sb/claude-lobsters-cli.5m.sh"; }
+      [ -f "$SWIFTBAR_LOGIN" ] && { doing "stop starting SwiftBar at login"; rm -f "$SWIFTBAR_LOGIN"; }
+    fi
     rm -f "$STATE"
-    step "Done"; echo "  Left in place: $(tilde "$RULES"), $(tilde "$BASECAMP") and your model settings. The package itself: sudo rm -r $PREFIX/bin/claude-lobsters-cli $LIBEXEC $SHARE"
+    step "Done"; echo "  Left in place: $(tilde "$RULES"), $(tilde "$BASECAMP"), SwiftBar and your model settings. The package itself: sudo rm -r $PREFIX/bin/claude-lobsters-cli $LIBEXEC $SHARE"
     return
   fi
   setup_migrate_old

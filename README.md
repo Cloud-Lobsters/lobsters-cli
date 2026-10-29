@@ -18,7 +18,7 @@ Before you start: the 1Password app signed in with **Integrate with 1Password CL
 
 | | |
 |---|---|
-| `claude-lobsters-cli setup` | install or repair this machine: policy, rules clone, skills and agents, MCP servers, model defaults, status line. Safe to run again. |
+| `claude-lobsters-cli setup` | install or repair this machine: policy, rules clone, skills and agents, MCP servers, model defaults, status line, and on a Mac the menu-bar icon (installs SwiftBar and starts it at login). Safe to run again. |
 | `claude-lobsters-cli check` | report only, change nothing |
 | `claude-lobsters-cli upgrade [X.Y.Z]` | fetch a release, verify it, show what changes, install it (asks for your password) |
 | `claude-lobsters-cli status` | refresh and print `~/.local/state/cloud-lobsters/status.json` |
