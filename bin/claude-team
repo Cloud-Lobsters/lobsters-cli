@@ -95,6 +95,95 @@ latest_version() {
     | sed -n 's#.*refs/tags/v##p' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
 }
 
+# ---- banner: the lobster -------------------------------------------------------------
+# One character per pixel, two pixel rows per terminal line (▀ ▄ half blocks), drawn in
+# truecolor when the terminal says it has it and 256 colours otherwise. Three frames make
+# the pincer snap once. This block is identical in install.sh and bin/claude-team (the
+# installer runs before anything is on disk); scripts/release checks that it still is.
+LOBSTER=(
+  '......R...............R.................'
+  '......R..............R..................'
+  '.....R...............R..................'
+  '.RRR.R..............R...................'
+  'RRRHRRR.............R...................'
+  'RRR.RRRR............R...................'
+  'RR...RRRR.....HHRRRDRR..................'
+  '.....RRRRR...RRRRRRDRRRR................'
+  'RRR..RRRRR..RRKRRRDRRRRRRR..............'
+  'RRRRRRRRRR..RRRRRRDRRRRRRRR.............'
+  '.RRRRRRRRRRRRRRRRDRRRRRRRRRRD...........'
+  '..RRRRRRRR.RRRRRRDRRRRRRRRRRDRR.........'
+  '...RRRRRR..RRRRRRDRRRRRRRRRRDRRRD.......'
+  '...........RRRRRRDRRRRRRRRRDRRRDRRR.....'
+  '..........MRRRRRDRRRRRRRRRDRRDRRRRD.....'
+  '.....RRRRRRDDMMMMMMMMMMMMMDRRDRRRRDRRR..'
+  '....RRRR.RR..DRRDRRDRRDRRD.DMMRRDRRRRD..'
+  '...RRR....RR..DR.DR.DR.DR...DMMRDRRRRDPP'
+  '...RRR.........D..D..D..D....DMDRRRRDPPP'
+  '....RRRRRR.....R..R..R..R.....DRRRDPPPP.'
+  '......RRR.......D..D..D..D.....DRRPPPP..'
+  '................................PPPPP...'
+  '.................................PPP....'
+)
+# The other two frames as 'row:prefix' deltas: the prefix replaces the first columns of that row.
+LOBSTER_OPEN=('0:.....R.................R' '1:.....R.................R' '2:.RR..R................R' '3:RRRR.R...............R' '5:.R.' '6:..' '17:...RRR....RR..RD.RD.RD.RD' '18:...RRR........D..D..D..D.' '19:....RRRRRR....R..R..R..R.' '20:......RRR......D..D..D..D......DRRPPPPP' '21:...............................PPPPPPP' '22:.................................PPPP')
+LOBSTER_SHUT=('0:.......R.............R.' '1:.......R' '2:......R' '3:....' '4:.RRRH' '5:RRRR' '6:RRR' '7:.RR' '8:...' '9:....')
+lobster_ink() { case $1 in R) INK=$LOB_R ;; M) INK=$LOB_M ;; D) INK=$LOB_D ;; H) INK=$LOB_H ;; P) INK=$LOB_P ;; K) INK=$LOB_K ;; *) INK='' ;; esac; }
+# lobster_frame [row:prefix]...: FRAME[] gets the terminal lines of one frame.
+lobster_frame() {
+  local rows=("${LOBSTER[@]}") o n p top bot y x a b sgr ch last line
+  for o in "$@"; do n=${o%%:*}; p=${o#*:}; rows[n]="$p${rows[n]:${#p}}"; done
+  FRAME=()
+  for ((y = 0; y < ${#rows[@]}; y += 2)); do
+    top=${rows[y]}; bot=${rows[y+1]:-}; line=''; last=''
+    for ((x = 0; x < ${#top}; x++)); do
+      lobster_ink "${top:x:1}"; a=$INK; lobster_ink "${bot:x:1}"; b=$INK
+      if [ -n "$a" ] && [ -n "$b" ]; then sgr="\033[38;$LOB_DEPTH;$a;48;$LOB_DEPTH;${b}m"; ch='▀'
+      elif [ -n "$a" ]; then sgr="\033[0;38;$LOB_DEPTH;${a}m"; ch='▀'
+      elif [ -n "$b" ]; then sgr="\033[0;38;$LOB_DEPTH;${b}m"; ch='▄'
+      else sgr='\033[0m'; ch=' '; fi
+      [ "$sgr" = "$last" ] || { line="$line$sgr"; last=$sgr; }
+      line="$line$ch"
+    done
+    FRAME[${#FRAME[@]}]="$line\033[0m"
+  done
+}
+# lobster_banner DETAIL TAGLINE: "Cloud Lobsters", "claude-team DETAIL" and TAGLINE beside the
+# lobster (under it on a narrow terminal), animated once. Just the words when stdout is not a
+# UTF-8 terminal, NO_COLOR is set or TERM is dumb. CLAUDE_TEAM_NO_BANNER=1 prints nothing.
+lobster_banner() {
+  local detail="$1" tagline="$2" i n cols
+  local -a text f0 f1 f2
+  [ -z "${CLAUDE_TEAM_NO_BANNER:-}" ] || return 0
+  if [ ! -t 1 ] || [ -n "${NO_COLOR:-}" ] || [ "${TERM:-dumb}" = dumb ] \
+     || ! { echo "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" | grep -qi 'utf-\{0,1\}8'; }; then
+    printf '\nCloud Lobsters · claude-team%s · %s\n\n' "${detail:+ $detail}" "$tagline"; return 0
+  fi
+  case ${COLORTERM:-} in
+    truecolor|24bit) LOB_DEPTH=2; LOB_R='227;57;43'; LOB_M='196;42;34'; LOB_D='140;22;22'; LOB_H='255;118;98'; LOB_P='242;150;140'; LOB_K='24;12;12' ;;
+    *)               LOB_DEPTH=5; LOB_R=160; LOB_M=124; LOB_D=88; LOB_H=209; LOB_P=217; LOB_K=232 ;;
+  esac
+  text=("\033[1mCloud Lobsters\033[0m" "\033[38;$LOB_DEPTH;${LOB_R}mclaude-team\033[0m${detail:+ $detail}" "\033[2m$tagline\033[0m")
+  lobster_frame;                      f0=("${FRAME[@]}")
+  lobster_frame "${LOBSTER_OPEN[@]}"; f1=("${FRAME[@]}")
+  lobster_frame "${LOBSTER_SHUT[@]}"; f2=("${FRAME[@]}")
+  n=${#f0[@]}
+  cols=$(tput cols 2>/dev/null || echo "${COLUMNS:-80}")
+  if [ "${cols:-80}" -ge 80 ]; then
+    for i in 0 1 2; do f0[i+4]="${f0[i+4]}   ${text[i]}"; f1[i+4]="${f1[i+4]}   ${text[i]}"; f2[i+4]="${f2[i+4]}   ${text[i]}"; done
+  else
+    for i in 0 1 2; do f0[n+i]=${text[i]}; f1[n+i]=${text[i]}; f2[n+i]=${text[i]}; done
+    n=$((n + 3))
+  fi
+  echo; printf '%b\n' "${f0[@]}"
+  for i in 1 0 2 0 1 2 0; do
+    sleep 0.13; printf '\033[%dA' "$n"
+    case $i in 0) printf '%b\n' "${f0[@]}" ;; 1) printf '%b\n' "${f1[@]}" ;; 2) printf '%b\n' "${f2[@]}" ;; esac
+  done
+  echo
+}
+# ---- end banner ----------------------------------------------------------------------
+
 # ---- status.json --------------------------------------------------------------------
 # Written here and by rules-sync; read by `statusline`, SwiftBar and Waybar.
 write_status() { # $1 latest tooling version or "", $2 rules head, $3 rules last sync (ISO) or "", $4.. changed-by
@@ -337,6 +426,11 @@ setup_extras() {
 }
 
 run_setup() {
+  case $MODE in
+    check)  lobster_banner "v$(installed_version)" "check only: nothing changes" ;;
+    remove) lobster_banner "v$(installed_version)" "taking the team setup out" ;;
+    *)      lobster_banner "v$(installed_version)" "Claude Code for the whole team" ;;
+  esac
   setup_prereqs
   if [ $MODE = remove ]; then
     setup_managed; setup_rules; setup_mcp
@@ -394,10 +488,14 @@ cmd_upgrade() {
   lat="$(latest_version)"; [ -n "$lat" ] || die "could not read releases of $TOOLING_REPO (offline?)"
   if [ -z "$want" ]; then
     want="$lat"
-    if ! version_lt "$inst" "$want"; then echo "claude-team $inst is current."; cmd_status >/dev/null; return 0; fi
+    if ! version_lt "$inst" "$want"; then
+      lobster_banner "v$inst" "up to date"
+      echo "claude-team $inst is current."; cmd_status >/dev/null; return 0
+    fi
   elif version_lt "$want" "$inst"; then
     echo "Note: $want is older than the installed $inst. Installing it anyway because you named it." >&2
   fi
+  lobster_banner "v$inst → v$want" "Claude Code for the whole team"
   tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
   asset="claude-team-$want.tar.gz"; base="https://github.com/$TOOLING_REPO/releases/download/v$want"
   echo "Fetching claude-team $want..."
@@ -421,7 +519,7 @@ cmd_upgrade() {
   case "$yn" in y|Y|yes) ;; *) echo "Not installed."; return 1 ;; esac
   sudo "$PREFIX/bin/claude-team" install-files "$tree" || die "install failed"
   echo; echo "Applying the new policy..."
-  exec "$PREFIX/bin/claude-team" setup
+  CLAUDE_TEAM_NO_BANNER=1 exec "$PREFIX/bin/claude-team" setup
 }
 
 # ---- main ----------------------------------------------------------------------------
@@ -434,5 +532,6 @@ case "${1:-}" in
   statusline)    cmd_statusline ;;
   install-files) cmd_install_files "${2:?install-files needs a source directory}" ;;
   version|--version|-v) installed_version; echo ;;
-  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) lobster_banner "v$(installed_version)" "Claude Code for the whole team"
+     sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

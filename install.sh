@@ -22,6 +22,95 @@ say() { printf '\033[1m%s\033[0m\n' "$1"; }
 die() { printf 'install: %s\n' "$1" >&2; exit 1; }
 has() { command -v "$1" >/dev/null 2>&1; }
 
+# ---- banner: the lobster -------------------------------------------------------------
+# One character per pixel, two pixel rows per terminal line (▀ ▄ half blocks), drawn in
+# truecolor when the terminal says it has it and 256 colours otherwise. Three frames make
+# the pincer snap once. This block is identical in install.sh and bin/claude-team (the
+# installer runs before anything is on disk); scripts/release checks that it still is.
+LOBSTER=(
+  '......R...............R.................'
+  '......R..............R..................'
+  '.....R...............R..................'
+  '.RRR.R..............R...................'
+  'RRRHRRR.............R...................'
+  'RRR.RRRR............R...................'
+  'RR...RRRR.....HHRRRDRR..................'
+  '.....RRRRR...RRRRRRDRRRR................'
+  'RRR..RRRRR..RRKRRRDRRRRRRR..............'
+  'RRRRRRRRRR..RRRRRRDRRRRRRRR.............'
+  '.RRRRRRRRRRRRRRRRDRRRRRRRRRRD...........'
+  '..RRRRRRRR.RRRRRRDRRRRRRRRRRDRR.........'
+  '...RRRRRR..RRRRRRDRRRRRRRRRRDRRRD.......'
+  '...........RRRRRRDRRRRRRRRRDRRRDRRR.....'
+  '..........MRRRRRDRRRRRRRRRDRRDRRRRD.....'
+  '.....RRRRRRDDMMMMMMMMMMMMMDRRDRRRRDRRR..'
+  '....RRRR.RR..DRRDRRDRRDRRD.DMMRRDRRRRD..'
+  '...RRR....RR..DR.DR.DR.DR...DMMRDRRRRDPP'
+  '...RRR.........D..D..D..D....DMDRRRRDPPP'
+  '....RRRRRR.....R..R..R..R.....DRRRDPPPP.'
+  '......RRR.......D..D..D..D.....DRRPPPP..'
+  '................................PPPPP...'
+  '.................................PPP....'
+)
+# The other two frames as 'row:prefix' deltas: the prefix replaces the first columns of that row.
+LOBSTER_OPEN=('0:.....R.................R' '1:.....R.................R' '2:.RR..R................R' '3:RRRR.R...............R' '5:.R.' '6:..' '17:...RRR....RR..RD.RD.RD.RD' '18:...RRR........D..D..D..D.' '19:....RRRRRR....R..R..R..R.' '20:......RRR......D..D..D..D......DRRPPPPP' '21:...............................PPPPPPP' '22:.................................PPPP')
+LOBSTER_SHUT=('0:.......R.............R.' '1:.......R' '2:......R' '3:....' '4:.RRRH' '5:RRRR' '6:RRR' '7:.RR' '8:...' '9:....')
+lobster_ink() { case $1 in R) INK=$LOB_R ;; M) INK=$LOB_M ;; D) INK=$LOB_D ;; H) INK=$LOB_H ;; P) INK=$LOB_P ;; K) INK=$LOB_K ;; *) INK='' ;; esac; }
+# lobster_frame [row:prefix]...: FRAME[] gets the terminal lines of one frame.
+lobster_frame() {
+  local rows=("${LOBSTER[@]}") o n p top bot y x a b sgr ch last line
+  for o in "$@"; do n=${o%%:*}; p=${o#*:}; rows[n]="$p${rows[n]:${#p}}"; done
+  FRAME=()
+  for ((y = 0; y < ${#rows[@]}; y += 2)); do
+    top=${rows[y]}; bot=${rows[y+1]:-}; line=''; last=''
+    for ((x = 0; x < ${#top}; x++)); do
+      lobster_ink "${top:x:1}"; a=$INK; lobster_ink "${bot:x:1}"; b=$INK
+      if [ -n "$a" ] && [ -n "$b" ]; then sgr="\033[38;$LOB_DEPTH;$a;48;$LOB_DEPTH;${b}m"; ch='▀'
+      elif [ -n "$a" ]; then sgr="\033[0;38;$LOB_DEPTH;${a}m"; ch='▀'
+      elif [ -n "$b" ]; then sgr="\033[0;38;$LOB_DEPTH;${b}m"; ch='▄'
+      else sgr='\033[0m'; ch=' '; fi
+      [ "$sgr" = "$last" ] || { line="$line$sgr"; last=$sgr; }
+      line="$line$ch"
+    done
+    FRAME[${#FRAME[@]}]="$line\033[0m"
+  done
+}
+# lobster_banner DETAIL TAGLINE: "Cloud Lobsters", "claude-team DETAIL" and TAGLINE beside the
+# lobster (under it on a narrow terminal), animated once. Just the words when stdout is not a
+# UTF-8 terminal, NO_COLOR is set or TERM is dumb. CLAUDE_TEAM_NO_BANNER=1 prints nothing.
+lobster_banner() {
+  local detail="$1" tagline="$2" i n cols
+  local -a text f0 f1 f2
+  [ -z "${CLAUDE_TEAM_NO_BANNER:-}" ] || return 0
+  if [ ! -t 1 ] || [ -n "${NO_COLOR:-}" ] || [ "${TERM:-dumb}" = dumb ] \
+     || ! { echo "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" | grep -qi 'utf-\{0,1\}8'; }; then
+    printf '\nCloud Lobsters · claude-team%s · %s\n\n' "${detail:+ $detail}" "$tagline"; return 0
+  fi
+  case ${COLORTERM:-} in
+    truecolor|24bit) LOB_DEPTH=2; LOB_R='227;57;43'; LOB_M='196;42;34'; LOB_D='140;22;22'; LOB_H='255;118;98'; LOB_P='242;150;140'; LOB_K='24;12;12' ;;
+    *)               LOB_DEPTH=5; LOB_R=160; LOB_M=124; LOB_D=88; LOB_H=209; LOB_P=217; LOB_K=232 ;;
+  esac
+  text=("\033[1mCloud Lobsters\033[0m" "\033[38;$LOB_DEPTH;${LOB_R}mclaude-team\033[0m${detail:+ $detail}" "\033[2m$tagline\033[0m")
+  lobster_frame;                      f0=("${FRAME[@]}")
+  lobster_frame "${LOBSTER_OPEN[@]}"; f1=("${FRAME[@]}")
+  lobster_frame "${LOBSTER_SHUT[@]}"; f2=("${FRAME[@]}")
+  n=${#f0[@]}
+  cols=$(tput cols 2>/dev/null || echo "${COLUMNS:-80}")
+  if [ "${cols:-80}" -ge 80 ]; then
+    for i in 0 1 2; do f0[i+4]="${f0[i+4]}   ${text[i]}"; f1[i+4]="${f1[i+4]}   ${text[i]}"; f2[i+4]="${f2[i+4]}   ${text[i]}"; done
+  else
+    for i in 0 1 2; do f0[n+i]=${text[i]}; f1[n+i]=${text[i]}; f2[n+i]=${text[i]}; done
+    n=$((n + 3))
+  fi
+  echo; printf '%b\n' "${f0[@]}"
+  for i in 1 0 2 0 1 2 0; do
+    sleep 0.13; printf '\033[%dA' "$n"
+    case $i in 0) printf '%b\n' "${f0[@]}" ;; 1) printf '%b\n' "${f1[@]}" ;; 2) printf '%b\n' "${f2[@]}" ;; esac
+  done
+  echo
+}
+# ---- end banner ----------------------------------------------------------------------
+
 case "$(uname -s)" in
   Darwin) os=mac ;;
   Linux)
@@ -29,6 +118,7 @@ case "$(uname -s)" in
   *) die "unsupported OS $(uname -s)" ;;
 esac
 
+lobster_banner '' 'Claude Code for the whole team'
 say "1. Tools"
 if ! has git; then
   case $os in mac) xcode-select --install 2>/dev/null; die "install the Xcode command line tools, then run this again" ;;
@@ -100,4 +190,4 @@ say "4. Install (asks for your password)"
 sudo bash "$tree/bin/claude-team" install-files "$tree" </dev/tty
 
 say "5. Set up this machine"
-exec /usr/local/bin/claude-team setup </dev/tty
+CLAUDE_TEAM_NO_BANNER=1 exec /usr/local/bin/claude-team setup </dev/tty

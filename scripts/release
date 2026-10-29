@@ -35,6 +35,9 @@ git rev-parse -q --verify "refs/tags/v$v" >/dev/null && die "v$v already exists"
 [ -f "$KEY" ] || die "signing key $KEY not found (set CLAUDE_TEAM_SIGNING_KEY to your public key file)"
 grep -qF "$(awk '{print $2}' "$KEY")" share/allowed_signers || die "$KEY is not in share/allowed_signers; add it in a commit first"
 command -v gh >/dev/null && gh auth status >/dev/null 2>&1 || die "gh is not signed in"
+banner() { sed -n '/^# ---- banner: the lobster/,/^# ---- end banner/p' "$1"; }
+[ -n "$(banner install.sh)" ] && [ "$(banner install.sh)" = "$(banner bin/claude-team)" ] \
+  || die "the banner block differs between install.sh and bin/claude-team; make them identical"
 
 if [ "$(tr -d '[:space:]' < VERSION)" != "$v" ]; then
   echo "$v" > VERSION
