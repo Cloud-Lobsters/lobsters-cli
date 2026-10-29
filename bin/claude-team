@@ -260,21 +260,27 @@ setup_mcp() {
   [ -f "$src" ] || die "$src is missing; run claude-team upgrade"
   hash="$(sha256 < "$src" | cut -c1-40)"
   current="$(jq '.mcpServers // {}' "$CONFIG" 2>/dev/null || echo '{}')"
-  op_ok=""
+  op_ok=""; op_err=""
   for name in $(jq -r 'keys[]' "$src"); do
     raw="$(jq -c --arg n "$name" '.[$n]' "$src")"
     have="$(echo "$current" | jq -cS --arg n "$name" '.[$n] // empty')"
     cmd="$(echo "$raw" | jq -r 'if .type == "stdio" then .command else empty end')"
     if [ -n "$cmd" ] && [ ! -x "$cmd" ]; then note "$name: skipped, $cmd is not on this machine"; continue; fi
     if echo "$raw" | grep -q 'op://'; then
-      [ -z "$op_ok" ] && { op vault list </dev/null >/dev/null 2>&1 && op_ok=1 || op_ok=0; }
-      if [ "$op_ok" = 0 ]; then need "$name not added: 1Password is locked or not linked to the CLI (see README)"; failed=1; continue; fi
-      if ! want="$(echo "$raw" | op inject 2>/dev/null)"; then
-        field="$(echo "$raw" | grep -o 'op://[^ }"]*' | head -1)"
-        if [ "$name" = "$REQUIRED_MCP" ]; then need "$name is required: save your key in 1Password at $field, then run claude-team setup again"
-        else note "$name: skipped, no key at $field"; fi
+      # One probe per run. 1Password may show an "allow CLI access" dialog here: approving it is enough.
+      if [ -z "$op_ok" ]; then
+        if op_err="$(op vault list </dev/null 2>&1 >/dev/null)"; then op_ok=1
+        else op_ok=0; op_err="$(echo "$op_err" | sed 's/^\[ERROR\] [0-9/: ]*//' | head -1)"; fi
+      fi
+      if [ "$op_ok" = 0 ]; then need "$name not added. 1Password said: ${op_err:-no answer}. Approve its prompt if one appeared, or unlock it, or turn on Settings → Developer → Integrate with 1Password CLI; then run claude-team setup again"; failed=1; continue; fi
+      field="$(echo "$raw" | grep -o 'op://[^ }"]*' | head -1)"
+      if ! want="$(echo "$raw" | op inject 2>/tmp/claude-team-op.$$)"; then
+        op_err="$(sed 's/^\[ERROR\] [0-9/: ]*//' /tmp/claude-team-op.$$ | head -1)"; rm -f /tmp/claude-team-op.$$
+        if [ "$name" = "$REQUIRED_MCP" ]; then need "$name is required but 1Password has no value at $field (${op_err:-unknown error}). Create the item (see README), then run claude-team setup again"
+        else note "$name: skipped, no value at $field"; fi
         continue
       fi
+      rm -f /tmp/claude-team-op.$$
     else want="$raw"; fi
     want="$(echo "$want" | jq -cS .)"
     if [ "$want" = "$have" ]; then keep+=("$name"); ok "MCP $name"; continue; fi
