@@ -1,5 +1,5 @@
 #!/bin/bash
-# Cut a release of claude-lobster. Maintainers only; run from a clean checkout of main.
+# Cut a release of claude-lobsters-cli. Maintainers only; run from a clean checkout of main.
 #
 #   scripts/release 1.3.0
 #
@@ -10,15 +10,15 @@
 # Release with the three files. No CI, no secrets anywhere but your 1Password.
 #
 # Your key: an SSH key in 1Password whose public half is listed in share/allowed_signers.
-# Point CLAUDE_LOBSTER_SIGNING_KEY at the public key file (default ~/.ssh/cloud-lobsters-release.pub);
+# Point CLAUDE_LOBSTERS_CLI_SIGNING_KEY at the public key file (default ~/.ssh/cloud-lobsters-release.pub);
 # the 1Password SSH agent supplies the private half and asks you to approve, once.
 
 set -eu
 cd "$(dirname "$0")/.."
-TOOLING_REPO="Cloud-Lobsters/claude-lobster"
+TOOLING_REPO="Cloud-Lobsters/claude-lobsters-cli"
 SIGNER="release@cloudlobsters.com"
-NAMESPACE="claude-lobster"
-KEY="${CLAUDE_LOBSTER_SIGNING_KEY:-$HOME/.ssh/cloud-lobsters-release.pub}"
+NAMESPACE="claude-lobsters-cli"
+KEY="${CLAUDE_LOBSTERS_CLI_SIGNING_KEY:-$HOME/.ssh/cloud-lobsters-release.pub}"
 die() { printf 'release: %s\n' "$1" >&2; exit 1; }
 
 # The private key lives in 1Password; its SSH agent signs. Prefer that agent when it is running.
@@ -32,23 +32,23 @@ v="${1:-}"
 [ -z "$(git status --porcelain)" ] || die "working tree is not clean"
 git fetch -q origin main && [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || die "main is not in sync with origin"
 git rev-parse -q --verify "refs/tags/v$v" >/dev/null && die "v$v already exists"
-[ -f "$KEY" ] || die "signing key $KEY not found (set CLAUDE_LOBSTER_SIGNING_KEY to your public key file)"
+[ -f "$KEY" ] || die "signing key $KEY not found (set CLAUDE_LOBSTERS_CLI_SIGNING_KEY to your public key file)"
 grep -qF "$(awk '{print $2}' "$KEY")" share/allowed_signers || die "$KEY is not in share/allowed_signers; add it in a commit first"
 command -v gh >/dev/null && gh auth status >/dev/null 2>&1 || die "gh is not signed in"
 banner() { sed -n '/^# ---- banner: the lobster/,/^# ---- end banner/p' "$1"; }
-[ -n "$(banner install.sh)" ] && [ "$(banner install.sh)" = "$(banner bin/claude-lobster)" ] \
-  || die "the banner block differs between install.sh and bin/claude-lobster; make them identical"
+[ -n "$(banner install.sh)" ] && [ "$(banner install.sh)" = "$(banner bin/claude-lobsters-cli)" ] \
+  || die "the banner block differs between install.sh and bin/claude-lobsters-cli; make them identical"
 
 if [ "$(tr -d '[:space:]' < VERSION)" != "$v" ]; then
   echo "$v" > VERSION
   git add VERSION
   git commit -q -m "release: v$v"
 fi
-git tag -a "v$v" -m "claude-lobster v$v"
+git tag -a "v$v" -m "claude-lobsters-cli v$v"
 
 rm -rf dist && mkdir dist
-asset="claude-lobster-$v.tar.gz"
-git archive --format=tar.gz --prefix="claude-lobster-$v/" -o "dist/$asset" "v$v"
+asset="claude-lobsters-cli-$v.tar.gz"
+git archive --format=tar.gz --prefix="claude-lobsters-cli-$v/" -o "dist/$asset" "v$v"
 ( cd dist
   if command -v shasum >/dev/null; then shasum -a 256 "$asset" > SHA256SUMS; else sha256sum "$asset" > SHA256SUMS; fi
   echo "Signing SHA256SUMS with $KEY (1Password will ask once)..."
@@ -59,4 +59,4 @@ git archive --format=tar.gz --prefix="claude-lobster-$v/" -o "dist/$asset" "v$v"
 
 git push -q origin main "v$v"
 gh release create "v$v" "dist/$asset" dist/SHA256SUMS dist/SHA256SUMS.sig --repo "$TOOLING_REPO" --title "v$v" --generate-notes
-echo "Released v$v. Machines see it at their next session start and install it with: claude-lobster upgrade"
+echo "Released v$v. Machines see it at their next session start and install it with: claude-lobsters-cli upgrade"

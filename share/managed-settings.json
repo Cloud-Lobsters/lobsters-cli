@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/libexec/claude-lobster/rules-sync",
+            "command": "/usr/local/libexec/claude-lobsters-cli/rules-sync",
             "timeout": 60,
             "statusMessage": "Syncing team config"
           }

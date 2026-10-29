@@ -1,4 +1,4 @@
-# claude-lobster
+# claude-lobsters-cli
 
 The Cloud Lobsters policy layer for Claude Code: what every team member's and contractor's machine runs at session start, installed once, updated only when a person says so. Mac, Ubuntu and Omarchy.
 
@@ -7,10 +7,10 @@ It is deliberately small: one CLI, one session hook, two JSON files. Everything 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Cloud-Lobsters/claude-lobster/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Cloud-Lobsters/claude-lobsters-cli/main/install.sh | bash
 ```
 
-It installs Claude Code, `gh` and `jq` if they are missing, stops to ask you to `gh auth login` if you have not, downloads the newest release, checks its signature and checksums, prints the maintainer key fingerprint (compare it with the onboarding note), installs under `/usr/local` (asks for your password once) and runs `claude-lobster setup`. Then start Claude Code, accept the one-time managed-hook dialog, and sign in to Ref with `/mcp`.
+It installs Claude Code, `gh` and `jq` if they are missing, stops to ask you to `gh auth login` if you have not, downloads the newest release, checks its signature and checksums, prints the maintainer key fingerprint (compare it with the onboarding note), installs under `/usr/local` (asks for your password once) and runs `claude-lobsters-cli setup`. Then start Claude Code, accept the one-time managed-hook dialog, and sign in to Ref with `/mcp`.
 
 Before you start: the 1Password app signed in with **Integrate with 1Password CLI** on, and an item `claude-code-mcp` in your Employee vault with a `pm_authorization` field (`Bearer sk_live_…` from project.cloudlobsters.com/dashboard/preferences). `fireflies_authorization` too if you use Fireflies.
 
@@ -18,17 +18,17 @@ Before you start: the 1Password app signed in with **Integrate with 1Password CL
 
 | | |
 |---|---|
-| `claude-lobster setup` | install or repair this machine: policy, rules clone, skills and agents, MCP servers, model defaults, status line. Safe to run again. |
-| `claude-lobster check` | report only, change nothing |
-| `claude-lobster upgrade [X.Y.Z]` | fetch a release, verify it, show what changes, install it (asks for your password) |
-| `claude-lobster status` | refresh and print `~/.local/state/cloud-lobsters/status.json` |
-| `claude-lobster remove` | take the team setup out again |
+| `claude-lobsters-cli setup` | install or repair this machine: policy, rules clone, skills and agents, MCP servers, model defaults, status line. Safe to run again. |
+| `claude-lobsters-cli check` | report only, change nothing |
+| `claude-lobsters-cli upgrade [X.Y.Z]` | fetch a release, verify it, show what changes, install it (asks for your password) |
+| `claude-lobsters-cli status` | refresh and print `~/.local/state/cloud-lobsters/status.json` |
+| `claude-lobsters-cli remove` | take the team setup out again |
 
 ## How it works
 
 | Layer | Where | Changes when |
 |---|---|---|
-| **Policy**: permission allow/deny lists and the one `SessionStart` hook | `/Library/Application Support/ClaudeCode/managed-settings.d/cloud-lobsters.json` (Mac), `/etc/claude-code/managed-settings.d/cloud-lobsters.json` (Linux); the hook and CLI under `/usr/local`. Root-owned. | a person runs `claude-lobster upgrade` and types their password |
+| **Policy**: permission allow/deny lists and the one `SessionStart` hook | `/Library/Application Support/ClaudeCode/managed-settings.d/cloud-lobsters.json` (Mac), `/etc/claude-code/managed-settings.d/cloud-lobsters.json` (Linux); the hook and CLI under `/usr/local`. Root-owned. | a person runs `claude-lobsters-cli upgrade` and types their password |
 | **Content**: `team/CLAUDE.md`, `skills/`, `agents/` from the private repo | read-only clone at `~/.local/share/cloud-lobsters/config`; `~/.claude/CLAUDE.md` imports the rules; skills and agents are symlinked into `~/.claude` (one of yours with the same name wins) | every session start, by the hook: `git pull --ff-only`, relink, one line saying who changed what |
 
 The hook, `libexec/rules-sync`, pulls and links. It refuses to link any skill or agent whose frontmatter mentions hooks (the one place such a file could declare one), and names changed scripts in its note so you know what a skill might ask Claude to run. It also asks GitHub, at most every 6 hours and read-only, whether a newer release exists, and writes `status.json` for the status line, SwiftBar (Mac) and Waybar (Omarchy; see `share/waybar/README.md`).
@@ -53,12 +53,12 @@ Your release key is an SSH key in 1Password whose public half is in `share/allow
 - A push to the private content repo delivers text: rules, skill and agent prompts, and scripts a skill may ask Claude to run, which are named in the session note. It cannot run anything at session start, change permissions, add a hook, or add an MCP server.
 - `upgrade` refuses an unsigned release, a release signed by a key not in the installed `allowed_signers`, a checksum mismatch, and (unless you name the version) a downgrade.
 - First install is trust-on-first-use, like every installer: compare the printed key fingerprint with the onboarding note.
-- **Accepted risk (2026-10-29):** `allowManagedHooksOnly` is not set. It would also have blocked a hook planted in a client repo's `.claude/settings.json` (runs once you trust that folder; one machine per person who opens it) and hooks from plugins people install themselves. It would also have broken everyone's own hooks, every repo's project hooks and all personal status lines, so it stays off on the assumption that the team does not install unknown plugins. Revisit after any repo-hook incident: `claude-lobster statusline` already runs your own status line and appends the team segment, so turning it on is a one-line release.
+- **Accepted risk (2026-10-29):** `allowManagedHooksOnly` is not set. It would also have blocked a hook planted in a client repo's `.claude/settings.json` (runs once you trust that folder; one machine per person who opens it) and hooks from plugins people install themselves. It would also have broken everyone's own hooks, every repo's project hooks and all personal status lines, so it stays off on the assumption that the team does not install unknown plugins. Revisit after any repo-hook incident: `claude-lobsters-cli statusline` already runs your own status line and appends the team segment, so turning it on is a one-line release.
 
 ## Layout
 
 ```
-bin/claude-lobster               the CLI
+bin/claude-lobsters-cli               the CLI
 libexec/rules-sync            the SessionStart hook
 share/managed-settings.json   the policy
 share/mcp-servers.json        team MCP servers, with op:// pointers

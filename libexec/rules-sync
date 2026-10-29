@@ -1,8 +1,8 @@
 #!/bin/bash
 # rules-sync: the one SessionStart hook the Cloud Lobsters policy installs.
 #
-# Installed root-owned at /usr/local/libexec/claude-lobster/rules-sync; changes only on
-# `claude-lobster upgrade`. It runs at the start of every Claude Code session and exits 0
+# Installed root-owned at /usr/local/libexec/claude-lobsters-cli/rules-sync; changes only on
+# `claude-lobsters-cli upgrade`. It runs at the start of every Claude Code session and exits 0
 # whatever happened, so it can never break a session. It does four things:
 #
 #   1. fast-forwards the read-only clone of the team config repo
@@ -14,19 +14,19 @@
 #      one place a linked file could declare a hook, and team content may not add hooks.
 #      A linked skill has no way to add an MCP server. What it can add is text Claude reads,
 #      plus scripts Claude may be told to run: those show up by name in the session note.
-#   3. at most every 6 hours, asks GitHub for the newest claude-lobster release tag
+#   3. at most every 6 hours, asks GitHub for the newest claude-lobsters-cli release tag
 #      (`git ls-remote`: anonymous, read-only, nothing written).
 #   4. writes ~/.local/state/cloud-lobsters/status.json for the status line / menu bar, and
 #      prints one note for the top of the session when something changed.
 #
-#   rules-sync --link-only    just step 2 (claude-lobster setup calls this)
+#   rules-sync --link-only    just step 2 (claude-lobsters-cli setup calls this)
 
 set -u
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-PREFIX="${CLAUDE_LOBSTER_PREFIX:-/usr/local}"
-SHARE="$PREFIX/share/claude-lobster"
-TOOLING_REPO="Cloud-Lobsters/claude-lobster"
+PREFIX="${CLAUDE_LOBSTERS_CLI_PREFIX:-/usr/local}"
+SHARE="$PREFIX/share/claude-lobsters-cli"
+TOOLING_REPO="Cloud-Lobsters/claude-lobsters-cli"
 CLAUDE="$HOME/.claude"
 REPO="$HOME/.local/share/cloud-lobsters/config"
 STATE_DIR="$HOME/.local/state/cloud-lobsters"
@@ -94,7 +94,7 @@ if [ "${1:-}" = --link-only ]; then link_items skills; link_items agents; exit 0
 # 1. Pull.
 who=""
 if [ ! -d "$REPO/.git" ]; then
-  notes+=("Team config is not set up on this machine: run claude-lobster setup")
+  notes+=("Team config is not set up on this machine: run claude-lobsters-cli setup")
 elif [ "$(git -C "$REPO" symbolic-ref --short -q HEAD)" != main ]; then
   notes+=("Team config not updated: $REPO is on a branch other than main.")
 elif [ -n "$(git -C "$REPO" status --porcelain)" ]; then
@@ -130,13 +130,13 @@ fi
 installed="$(tr -d '[:space:]' < "$SHARE/VERSION" 2>/dev/null || echo 0.0.0)"
 if [ -n "$latest" ] && version_lt "$installed" "$latest"; then
   # Say it once per new version, not every session; the status line keeps showing it.
-  [ "$(cat "$STATE_DIR/nagged" 2>/dev/null)" = "$latest" ] || { notes+=("claude-lobster $latest is available (you have $installed): run claude-lobster upgrade"); echo "$latest" > "$STATE_DIR/nagged"; }
+  [ "$(cat "$STATE_DIR/nagged" 2>/dev/null)" = "$latest" ] || { notes+=("claude-lobsters-cli $latest is available (you have $installed): run claude-lobsters-cli upgrade"); echo "$latest" > "$STATE_DIR/nagged"; }
 fi
 
 # 4. status.json.
 head="$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null)"
 sync="$([ -f "$SYNC_STAMP" ] && date -u -r "$SYNC_STAMP" +%FT%TZ 2>/dev/null)"
-if [ ! -f "$PREFIX/bin/claude-lobster" ]; then state=not-installed
+if [ ! -f "$PREFIX/bin/claude-lobsters-cli" ]; then state=not-installed
 elif [ -n "$latest" ] && version_lt "$installed" "$latest"; then state=update-available
 elif [ -n "$(find "$SYNC_STAMP" -mtime +7 2>/dev/null)" ]; then state=stale
 else state=synced; fi

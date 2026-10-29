@@ -14,10 +14,10 @@ case "$state" in
   *)                echo "🦞 ✗ | color=red" ;;
 esac
 echo "---"
-echo "claude-lobster $inst · newest $lat"
+echo "claude-lobsters-cli $inst · newest $lat"
 echo "rules synced $sync"
 case "$state" in
-  update-available) echo "Upgrade now | bash=/usr/local/bin/claude-lobster param1=upgrade terminal=true" ;;
-  not-installed)    echo "Run claude-lobster setup | bash=/usr/local/bin/claude-lobster param1=setup terminal=true" ;;
+  update-available) echo "Upgrade now | bash=/usr/local/bin/claude-lobsters-cli param1=upgrade terminal=true" ;;
+  not-installed)    echo "Run claude-lobsters-cli setup | bash=/usr/local/bin/claude-lobsters-cli param1=setup terminal=true" ;;
 esac
-echo "Check | bash=/usr/local/bin/claude-lobster param1=check terminal=true"
+echo "Check | bash=/usr/local/bin/claude-lobsters-cli param1=check terminal=true"
