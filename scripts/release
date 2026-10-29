@@ -21,6 +21,11 @@ NAMESPACE="claude-team"
 KEY="${CLAUDE_TEAM_SIGNING_KEY:-$HOME/.ssh/cloud-lobsters-release.pub}"
 die() { printf 'release: %s\n' "$1" >&2; exit 1; }
 
+# The private key lives in 1Password; its SSH agent signs. Prefer that agent when it is running.
+for sock in "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock" "$HOME/.1password/agent.sock"; do
+  [ -S "$sock" ] && { export SSH_AUTH_SOCK="$sock"; break; }
+done
+
 v="${1:-}"
 [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: scripts/release X.Y.Z"
 [ "$(git symbolic-ref --short HEAD)" = main ] || die "release from main"
