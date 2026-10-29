@@ -8,10 +8,10 @@ inst="$(jq -r '.tooling.installed // "?"' "$STATE" 2>/dev/null)"
 lat="$(jq -r '.tooling.latest // "?"' "$STATE" 2>/dev/null)"
 sync="$(jq -r '.rules.lastSync // "never"' "$STATE" 2>/dev/null)"
 case "$state" in
-  synced)           echo "☁︎ | sfimage=checkmark.icloud" ;;
-  update-available) echo "☁︎ v$lat | sfimage=icloud.and.arrow.down color=orange" ;;
-  stale)            echo "☁︎ | sfimage=exclamationmark.icloud color=orange" ;;
-  *)                echo "☁︎ | sfimage=xmark.icloud color=red" ;;
+  synced)           echo "🦞 $inst" ;;
+  update-available) echo "🦞 $inst → $lat | color=orange" ;;
+  stale)            echo "🦞 stale | color=orange" ;;
+  *)                echo "🦞 ✗ | color=red" ;;
 esac
 echo "---"
 echo "claude-team $inst · newest $lat"

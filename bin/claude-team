@@ -122,28 +122,32 @@ cmd_status() {
   jq . "$STATE"
 }
 
-# The status line segment. Set as your statusLine it prints just the segment. If the team
-# ever turns on allowManagedHooksOnly (which hides every status line but the managed one),
-# the managed one points here, and this runs your own statusLine command from
-# ~/.claude/settings.json first (same stdin), then adds the segment at the end.
-cmd_statusline() {
-  local input own state lat seg
-  input="$(cat)"
-  own="$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)"
+# The status line. `setup` points your statusLine here and keeps the command you had in
+# OWN_STATUSLINE; this runs that first (same stdin), then adds the lobster: 🦞 0.1.2 means
+# this machine runs the current team release. `remove` puts your own command back.
+OWN_STATUSLINE="$HOME/.config/cloud-lobsters/own-statusline"
+team_segment() {
+  local state inst lat
   state="$(jq -r '.state // "not-installed"' "$STATE" 2>/dev/null)"
+  inst="$(jq -r '.tooling.installed // ""' "$STATE" 2>/dev/null)"
   lat="$(jq -r '.tooling.latest // ""' "$STATE" 2>/dev/null)"
   case "$state" in
-    synced)           seg='☁ synced' ;;
-    update-available) seg="☁ v$lat available" ;;
-    stale)            seg='☁ rules stale' ;;
-    *)                seg='☁ not set up' ;;
+    synced)           printf '🦞 %s' "$inst" ;;
+    update-available) printf '🦞 %s → %s' "$inst" "$lat" ;;
+    stale)            printf '🦞 %s stale' "$inst" ;;
+    *)                printf '🦞 ✗' ;;
   esac
-  if [ -n "$own" ] && [ "$own" != "$PREFIX/bin/claude-team statusline" ]; then
-    printf '%s' "$input" | bash -c "$own" 2>/dev/null | head -1 | tr -d '\n'
-    printf ' · %s\n' "$seg"
-  else
-    printf '%s\n' "$seg"
-  fi
+}
+cmd_statusline() {
+  local input own out first rest
+  input="$(cat)"
+  own="$(cat "$OWN_STATUSLINE" 2>/dev/null)"
+  # Before setup has wrapped it, an own command may still sit in settings.json; honour that too.
+  [ -n "$own" ] || { own="$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)"; [ "$own" = "$PREFIX/bin/claude-team statusline" ] && own=""; }
+  out=""; [ -n "$own" ] && out="$(printf '%s' "$input" | bash -c "$own" 2>/dev/null)"
+  if [ -z "$out" ]; then team_segment; echo; return; fi
+  first="${out%%$'\n'*}"; rest="${out#"$first"}"
+  printf '%s · %s%s\n' "$first" "$(team_segment)" "$rest"
 }
 
 # ---- setup / check / remove ---------------------------------------------------------
@@ -247,10 +251,16 @@ setup_model() {
       | (if has("alwaysThinkingEnabled") then . else .alwaysThinkingEnabled = true end)
       | (if .modelSettings[$m].effortLevel then . else .modelSettings[$m].effortLevel = "xhigh" end)' "$SETTINGS" | write_through "$SETTINGS"
   fi
-  local own; own="$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)"
-  if [ -n "$own" ]; then note "status line: yours ($own). For the team segment too, make it: $PREFIX/bin/claude-team statusline"
-  elif act "show the team sync state in the status line"; then
-    jq --arg sl "$PREFIX/bin/claude-team statusline" '.statusLine = {type: "command", command: $sl}' "$SETTINGS" | write_through "$SETTINGS"
+  local own ours="$PREFIX/bin/claude-team statusline"
+  own="$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)"
+  if [ "$own" = "$ours" ]; then ok "status line shows the 🦞 team segment$([ -s "$OWN_STATUSLINE" ] && echo ' after your own')"
+  elif [ -n "$own" ]; then
+    if act "keep your status line and add the 🦞 team segment after it"; then
+      mkdir -p "$(dirname "$OWN_STATUSLINE")" && printf '%s' "$own" > "$OWN_STATUSLINE"
+      jq --arg sl "$ours" '.statusLine.command = $sl | .statusLine.type = "command"' "$SETTINGS" | write_through "$SETTINGS"
+    fi
+  elif act "show the 🦞 team segment in the status line"; then
+    jq --arg sl "$ours" '.statusLine = {type: "command", command: $sl}' "$SETTINGS" | write_through "$SETTINGS"
   fi
 }
 
@@ -333,6 +343,13 @@ run_setup() {
     for f in "$CLAUDE"/skills/* "$CLAUDE"/agents/*; do
       [ -L "$f" ] && case "$(readlink "$f")" in "$RULES"/*) doing "unlink $(tilde "$f")"; rm -f "$f" ;; esac
     done
+    if [ "$(jq -r '.statusLine.command // empty' "$SETTINGS" 2>/dev/null)" = "$PREFIX/bin/claude-team statusline" ]; then
+      if [ -s "$OWN_STATUSLINE" ]; then
+        doing "put your own status line back"
+        jq --arg sl "$(cat "$OWN_STATUSLINE")" '.statusLine.command = $sl' "$SETTINGS" | write_through "$SETTINGS"
+      else doing "remove the team status line"; jq 'del(.statusLine)' "$SETTINGS" | write_through "$SETTINGS"; fi
+      rm -f "$OWN_STATUSLINE"
+    fi
     rm -f "$STATE"
     step "Done"; echo "  Left in place: $(tilde "$RULES"), $(tilde "$BASECAMP") and your model settings. The package itself: sudo rm -r $PREFIX/bin/claude-team $LIBEXEC $SHARE"
     return
