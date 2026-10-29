@@ -36,9 +36,11 @@ git rev-parse -q --verify "refs/tags/v$v" >/dev/null && die "v$v already exists"
 grep -qF "$(awk '{print $2}' "$KEY")" share/allowed_signers || die "$KEY is not in share/allowed_signers; add it in a commit first"
 command -v gh >/dev/null && gh auth status >/dev/null 2>&1 || die "gh is not signed in"
 
-echo "$v" > VERSION
-git add VERSION
-git commit -q -m "release: v$v"
+if [ "$(tr -d '[:space:]' < VERSION)" != "$v" ]; then
+  echo "$v" > VERSION
+  git add VERSION
+  git commit -q -m "release: v$v"
+fi
 git tag -a "v$v" -m "claude-team v$v"
 
 rm -rf dist && mkdir dist
