@@ -53,7 +53,7 @@ Your release key is an SSH key in 1Password whose public half is in `share/allow
 - A push to the private content repo delivers text: rules, skill and agent prompts, and scripts a skill may ask Claude to run, which are named in the session note. It cannot run anything at session start, change permissions, add a hook, or add an MCP server.
 - `upgrade` refuses an unsigned release, a release signed by a key not in the installed `allowed_signers`, a checksum mismatch, and (unless you name the version) a downgrade.
 - First install is trust-on-first-use, like every installer: compare the printed key fingerprint with the onboarding note.
-- Not done here, on purpose: `allowManagedHooksOnly`. It would also block everyone's own hooks and every repo's `.claude/settings.json` hooks, and hide every status line but the managed one. `claude-team statusline` already runs your own status line and appends the team segment, so the switch can be turned on later if the team wants it.
+- **Accepted risk (2026-10-29):** `allowManagedHooksOnly` is not set. It would also have blocked a hook planted in a client repo's `.claude/settings.json` (runs once you trust that folder; one machine per person who opens it) and hooks from plugins people install themselves. It would also have broken everyone's own hooks, every repo's project hooks and all personal status lines, so it stays off on the assumption that the team does not install unknown plugins. Revisit after any repo-hook incident: `claude-team statusline` already runs your own status line and appends the team segment, so turning it on is a one-line release.
 
 ## Layout
 
