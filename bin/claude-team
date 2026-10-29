@@ -53,7 +53,14 @@ STATE="$STATE_DIR/status.json"
 MCP_STATE="$CLAUDE/.claude-team-mcp"               # line 1: hash of mcp-servers.json; then the servers we manage
 REQUIRED_MCP="pm"
 OPUS="claude-opus-5-5"
-CODE_DIR="${CLAUDE_TEAM_CODE_DIR:-${CODE_DIR:-$HOME/Documents}}"   # the setup skills export CODE_DIR
+# Where your code lives, for the basecamp clone. Given once (CODE_DIR=... claude-team setup, or by the
+# setup skills, which export it), remembered in ~/.config/cloud-lobsters/code-dir for every later run.
+CODE_DIR_FILE="$HOME/.config/cloud-lobsters/code-dir"
+if [ -n "${CLAUDE_TEAM_CODE_DIR:-${CODE_DIR:-}}" ]; then
+  CODE_DIR="${CLAUDE_TEAM_CODE_DIR:-$CODE_DIR}"
+  mkdir -p "$(dirname "$CODE_DIR_FILE")" && echo "$CODE_DIR" > "$CODE_DIR_FILE"
+elif [ -s "$CODE_DIR_FILE" ]; then CODE_DIR="$(tr -d '[:space:]' < "$CODE_DIR_FILE")"
+else CODE_DIR="$HOME/Documents"; fi
 BASECAMP="$CODE_DIR/basecamp"
 
 installed_version() { tr -d '[:space:]' < "$SHARE/VERSION" 2>/dev/null || echo 0.0.0; }
