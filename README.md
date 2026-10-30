@@ -20,7 +20,7 @@ Before you start: the 1Password app signed in with **Integrate with 1Password CL
 
 | | |
 |---|---|
-| `lobsters-cli setup` | install or repair this machine: policy, rules clone, skills and agents, MCP servers, model defaults, status line, on a Mac the menu-bar icon (installs SwiftBar and starts it at login), and, if you have one, your 1Password service-account token into the keychain (pasted into the keychain tool's own prompt, so dev servers start with 1Password locked). Safe to run again. |
+| `lobsters-cli setup` | install or repair this machine: policy, rules clone, skills and agents, MCP servers, model defaults, status line, on a Mac the menu-bar icon (installs SwiftBar and starts it at login), and, for engineers, the team's shared `dev-readers` 1Password service-account token from the Engineering vault into the keychain (so dev servers start with 1Password locked; no vault, no token). Safe to run again. |
 | `lobsters-cli check` | report only, change nothing |
 | `lobsters-cli upgrade [X.Y.Z]` | fetch a release, verify it, show what changes, install it (asks for your password) |
 | `lobsters-cli status` | refresh and print `~/.local/state/cloud-lobsters/status.json` |
