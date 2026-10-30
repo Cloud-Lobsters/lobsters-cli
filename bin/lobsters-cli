@@ -609,9 +609,44 @@ setup_token() {
   note "no token in the keychain, and $TOKEN_REF is not readable (1Password locked, or no Engineering vault access). Only engineers running dev servers need one: unlock 1Password and run lobsters-cli token sync"
 }
 
+# Every dev Environment the 1Password app can list, "id<TAB>name" per line, through the app's MCP
+# server (the only listing there is: stable op has no `environment list`). Empty when the app is
+# locked, the server is not installed, or the app is on another account; the caller says so.
+mcp_dev_environments() {
+  local bin
+  bin="$(command -v 1password-mcp 2>/dev/null)" || bin="/Applications/1Password.app/Contents/MacOS/1password-mcp"
+  [ -x "$bin" ] && command -v python3 >/dev/null || return 1
+  timeout 45 python3 -I - "$bin" <<'PY' 2>/dev/null
+import json, subprocess, sys
+p = subprocess.Popen([sys.argv[1]], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+n = 0
+def rpc(method, params=None, notify=False):
+    global n
+    msg = {'jsonrpc': '2.0', 'method': method}
+    if params is not None: msg['params'] = params
+    if not notify: n += 1; msg['id'] = n
+    p.stdin.write(json.dumps(msg) + '\n'); p.stdin.flush()
+    if notify: return None
+    for line in p.stdout:
+        r = json.loads(line)
+        if r.get('id') == n: return r
+rpc('initialize', {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'lobsters-cli', 'version': '0'}})
+rpc('notifications/initialized', notify=True)
+def call(name, **a):
+    r = rpc('tools/call', {'name': name, 'arguments': a})['result']
+    t = ''.join(c.get('text', '') for c in r.get('content', []))
+    if r.get('isError'): sys.exit(1)
+    return json.loads(t)
+acct = call('authenticate')['account_id']
+for e in call('list_environments', accountId=acct)['environments']:
+    if e['name'].endswith('/development'): print(e['environmentId'] + '\t' + e['name'])
+p.stdin.close()
+PY
+}
+
 # lobsters-cli token sync [--shared] | check
 cmd_token() {
-  local f id name tok where n=0 bad=0
+  local f id name tok where n=0 bad=0 checked=""
   case "${1:-}" in
     sync)
       MODE=install; lobster_banner "v$(installed_version)" "the shared dev-readers token"
@@ -626,10 +661,26 @@ cmd_token() {
         [ -f "$f" ] || continue
         id="$(grep '^OP_ENVIRONMENT_ID=' "$f" | head -1 | cut -d= -f2 | tr -d '\"'"'"' ')"; [ -n "$id" ] || continue
         name="$(sed -n 's/^# Run a command with the \([^ ]*\) 1Password.*/\1/p' "$f" | head -1)"
-        n=$((n+1)); where="$(dirname "$(dirname "$f")")"; where="$(tilde "$where")"
+        n=$((n+1)); checked="$checked $id"; where="$(dirname "$(dirname "$f")")"; where="$(tilde "$where")"
         if OP_SERVICE_ACCOUNT_TOKEN="$tok" op run --environment "$id" -- true </dev/null >/dev/null 2>&1; then ok "${name:-$id}  [$where]"
         else need "${name:-$id}  [$where]: the token cannot read it. An admin adds it to the dev-readers service account, or recreates it, and updates $TOKEN_REF"; bad=$((bad+1)); fi
       done
+      # Then every dev Environment the app lists, cloned or not: a new project's Environment
+      # shows up here before anyone has its repo, which is when dev-readers must gain it.
+      step "Every dev Environment the 1Password app lists"
+      local listed seen=" $checked " any=0
+      listed="$(mcp_dev_environments)" || listed=""
+      if [ -z "$listed" ]; then note "could not list them: the 1Password app is locked, on another account, or has no MCP server here. Unlock it (Cloud Lobsters account) and run again"
+      else
+        while IFS=$'\t' read -r id name; do
+          [ -n "$id" ] || continue; any=1
+          case "$seen" in *" $id "*) continue ;; esac
+          n=$((n+1))
+          if OP_SERVICE_ACCOUNT_TOKEN="$tok" op run --environment "$id" -- true </dev/null >/dev/null 2>&1; then ok "$name"
+          else need "$name: the token cannot read it. An admin adds it to the dev-readers service account, or recreates it, and updates $TOKEN_REF"; bad=$((bad+1)); fi
+        done <<< "$listed"
+        [ $any = 1 ] || note "the app listed no dev Environment: it is on another account"
+      fi
       unset tok
       step "Done"; echo "  $n Environment(s) checked, $bad not readable."; [ $bad = 0 ] ;;
     *) echo "usage: lobsters-cli token sync [--shared] | check" >&2; return 2 ;;
