@@ -2,6 +2,8 @@
 # Cut a release of lobsters-cli. Maintainers only; run from a clean checkout of main.
 #
 #   scripts/release 1.3.0
+#   scripts/release 1.3.0 --yes     from a run with no terminal (the ! prefix in Claude Code):
+#                                   you have read the notes and the commits and they match
 #
 # What it does, in order: checks CHANGELOG.md has notes for the release (under `## Unreleased`
 # or `## X.Y.Z`; no notes, no release), names that section after the version, writes VERSION,
@@ -28,8 +30,10 @@ for sock in "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.soc
   [ -S "$sock" ] && { export SSH_AUTH_SOCK="$sock"; break; }
 done
 
-v="${1:-}"
-[[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "usage: scripts/release X.Y.Z"
+v="${1:-}"; yes=0
+[ "${2:-}" = --yes ] && yes=1
+[[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && [ -z "${3:-}" ] && { [ -z "${2:-}" ] || [ $yes = 1 ]; } \
+  || die "usage: scripts/release X.Y.Z [--yes]   (--yes: you have checked the notes against the commits; for a run with no terminal)"
 [ "$(git symbolic-ref --short HEAD)" = main ] || die "release from main"
 [ -z "$(git status --porcelain)" ] || die "working tree is not clean"
 git fetch -q origin main && [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ] || die "main is not in sync with origin"
@@ -61,8 +65,14 @@ if [ -n "$last" ]; then
   echo; echo "Commits since $last:"
   git log --format='  %s' "$last..HEAD" | grep -v '^  Merge ' || echo "  (none)"
 fi
-echo; printf 'Do the notes cover every change a person would notice? [y/N] '; read -r yn </dev/tty
-case "$yn" in y|Y|yes) ;; *) die "add the missing notes under '## Unreleased', commit, and run this again" ;; esac
+echo
+if [ $yes = 1 ]; then echo "Notes checked against the commits (--yes)."
+elif { : </dev/tty; } 2>/dev/null; then
+  printf 'Do the notes cover every change a person would notice? [y/N] '; read -r yn </dev/tty
+  case "$yn" in y|Y|yes) ;; *) die "add the missing notes under '## Unreleased', commit, and run this again" ;; esac
+else
+  die "no terminal to ask on. Read the notes and the commits above; if the notes cover every change a person would notice, run again with --yes. Nothing was written."
+fi
 
 if [ $from_unreleased = 1 ]; then
   # Name the section after the version and leave a fresh, empty Unreleased above it, so the

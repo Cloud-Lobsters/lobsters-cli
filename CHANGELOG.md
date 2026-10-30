@@ -8,7 +8,7 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
-- `scripts/release` shows the notes beside the commits since the last tag and asks whether they match, and leaves a fresh `## Unreleased` heading for the next change. A `CLAUDE.md` tells agents working on the repo to write the note with the change.
+- `scripts/release` shows the notes beside the commits since the last tag and asks whether they match, and leaves a fresh `## Unreleased` heading for the next change. A `CLAUDE.md` tells agents working on the repo to write the note with the change. With no terminal to ask on, the script stops before writing anything and says to run again with `--yes`.
 
 ## 0.5.5 (2026-10-30)
 
