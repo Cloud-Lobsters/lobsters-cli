@@ -47,14 +47,30 @@ changelog_section() { awk -v h="$1" '
   /^#/ { if (on) exit; on = ($0 ~ "^## " h "( |$)") ; next }
   on { print }' CHANGELOG.md; }
 has_text() { grep -q '[^[:space:]]' <<< "$1"; }
-notes="$(changelog_section "$v")"
+trim() { sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' | sed '/./,$!d'; }   # blank lines at either end
+notes="$(changelog_section "$v" | trim)"; from_unreleased=0
 if ! has_text "$notes"; then
-  notes="$(changelog_section Unreleased)"
+  notes="$(changelog_section Unreleased | trim)"; from_unreleased=1
   has_text "$notes" || die "CHANGELOG.md has no notes for $v. Write them under '## Unreleased' (one bullet per change, for the person upgrading), commit, and run this again. No notes, no release."
-  sed -i.bak "s/^## Unreleased\$/## $v ($(date +%F))/" CHANGELOG.md && rm -f CHANGELOG.md.bak
+fi
+
+# The maintainer checks the notes against what actually changed before anything is written.
+last="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+echo "Release notes for $v:"; sed 's/^/  /' <<< "$notes"
+if [ -n "$last" ]; then
+  echo; echo "Commits since $last:"
+  git log --format='  %s' "$last..HEAD" | grep -v '^  Merge ' || echo "  (none)"
+fi
+echo; printf 'Do the notes cover every change a person would notice? [y/N] '; read -r yn </dev/tty
+case "$yn" in y|Y|yes) ;; *) die "add the missing notes under '## Unreleased', commit, and run this again" ;; esac
+
+if [ $from_unreleased = 1 ]; then
+  # Name the section after the version and leave a fresh, empty Unreleased above it, so the
+  # next change has somewhere to go. An empty one is refused above, so it cannot ship as is.
+  awk -v new="## $v ($(date +%F))" '$0 == "## Unreleased" { print; print ""; print new; next } { print }' \
+    CHANGELOG.md > CHANGELOG.md.tmp && mv CHANGELOG.md.tmp CHANGELOG.md
   git add CHANGELOG.md
 fi
-notes="$(sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' <<< "$notes" | sed '/./,$!d')"   # trim blank lines
 
 if [ "$(tr -d '[:space:]' < VERSION)" != "$v" ]; then
   echo "$v" > VERSION

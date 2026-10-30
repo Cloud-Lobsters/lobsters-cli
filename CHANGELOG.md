@@ -6,6 +6,10 @@ refuses to cut a release without them, names the section after the version, and 
 the GitHub Release body. `lobsters-cli upgrade` shows every section between the installed
 version and the one it is about to install, read from the signed tarball.
 
+## Unreleased
+
+- `scripts/release` shows the notes beside the commits since the last tag and asks whether they match, and leaves a fresh `## Unreleased` heading for the next change. A `CLAUDE.md` tells agents working on the repo to write the note with the change.
+
 ## 0.5.5 (2026-10-30)
 
 - `lobsters-cli upgrade` shows the release notes for every version it is about to skip over, before it asks to install.
