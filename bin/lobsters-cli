@@ -524,7 +524,8 @@ EOF
 # revised 2026-10-30): its token is the item below in the Engineering vault. setup copies it into
 # the keychain while 1Password is unlocked, so a new dev does nothing and a rotated token reaches
 # every machine at its next setup (or `lobsters-cli token sync`). Someone who stored a token of
-# their own by hand keeps it: the item label tells the two apart. Keychain item: service
+# their own keeps it: the item label tells the two apart. The vault is the only way in: there
+# is no paste path, so no token travels outside 1Password. Keychain item: service
 # 1password-service-account on every OS (macOS Keychain via `security`, Linux Secret Service via
 # `secret-tool`). The token is only ever piped: into sha256, the keychain tool, or op's
 # environment; never printed, never through an agent. basecamp ADR 0057.
@@ -560,12 +561,12 @@ token_store() {
 }
 token_fp() { token_read | sha256 | cut -c1-16; }
 token_remove_hint() { [ $OS = mac ] && echo "security delete-generic-password -s $TOKEN_SERVICE" || echo "secret-tool clear service $TOKEN_SERVICE"; }
-# setup_token [force|manual]: the shared token into the keychain. `force` replaces a hand-stored
-# one; `manual` (token sync only) offers the paste fallback. setup itself never prompts: not
-# everyone with lobsters-cli runs dev servers or has the Engineering vault.
+# setup_token [force]: the shared token into the keychain, from the vault only. `force` replaces
+# a token that is not the shared one. Never prompts: not everyone with lobsters-cli runs dev
+# servers or has the Engineering vault, and those who don't must not get the token.
 setup_token() {
   step "6. 1Password service-account token (engineers: dev servers start with 1Password locked)"
-  local opv shared want have label answer
+  local opv shared want have label
   # Every repo's scripts/op-env.sh runs `op run --environment`, which needs op 2.41.0 or later.
   opv="$(op --version 2>/dev/null | sed 's/-.*//')"
   if [ -n "$opv" ] && [ "$(echo "$opv" | awk -F. '{printf "%d%03d%03d", $1,$2,$3}')" -lt 2041000 ]; then
@@ -582,7 +583,7 @@ setup_token() {
     label="$(token_label)"
     if [ "$have" = "$want" ]; then ok "the shared dev-readers token is in the keychain"
     elif [ -n "$have" ] && [ "$label" != "$TOKEN_LABEL" ] && [ "${1:-}" != force ]; then
-      note "the keychain holds a token of your own (\"$label\"); kept. For the shared one: lobsters-cli token sync --shared"
+      note "the keychain holds a different token (\"$label\"); kept. For the shared one: lobsters-cli token sync --shared"
     elif act "$([ -n "$have" ] && echo replace || echo store) the shared dev-readers token in the keychain"; then
       if printf '%s' "$shared" | token_store "$TOKEN_LABEL" && [ "$(token_fp)" = "$want" ]; then
         ok "shared dev-readers token stored (item $TOKEN_SERVICE); pnpm dev now starts with 1Password locked"
@@ -592,18 +593,7 @@ setup_token() {
   fi
   unset shared
   if token_present; then ok "token in the keychain (not compared with $TOKEN_REF: 1Password locked, or no Engineering vault access)"; return; fi
-  if [ "${1:-}" != manual ] || [ $MODE = check ] || [ ! -t 0 ]; then
-    note "no token in the keychain, and $TOKEN_REF is not readable (1Password locked, or no Engineering vault access). Only engineers running dev servers need one: unlock 1Password and run lobsters-cli token sync"; return
-  fi
-  printf '  No token in the keychain, and %s is not readable (1Password locked, or no vault access). Paste a token to store one by hand? It goes into the keychain tool, not this script. [y/N] ' "$TOKEN_REF"
-  read -r answer
-  case "$answer" in y|Y|yes) ;; *) note "skipped. Unlock 1Password and run setup again, or lobsters-cli token sync"; return ;; esac
-  doing "store the token in the keychain (paste it at the prompt; nothing is shown)"
-  case $OS in
-    mac)   security add-generic-password -U -s "$TOKEN_SERVICE" -a "$USER" -l "1Password service account" -w ;;
-    linux) secret-tool store --label="1Password service account" service "$TOKEN_SERVICE" ;;
-  esac
-  if token_present; then ok "token stored (item $TOKEN_SERVICE)"; else need "the token was not stored; run setup again"; fi
+  note "no token in the keychain, and $TOKEN_REF is not readable (1Password locked, or no Engineering vault access). Only engineers running dev servers need one: unlock 1Password and run lobsters-cli token sync"
 }
 
 # lobsters-cli token sync [--shared] | check
@@ -612,7 +602,7 @@ cmd_token() {
   case "${1:-}" in
     sync)
       MODE=install; lobster_banner "v$(installed_version)" "the shared dev-readers token"
-      setup_token "$([ "${2:-}" = --shared ] && echo force || echo manual)"; echo ;;
+      setup_token "$([ "${2:-}" = --shared ] && echo force)"; echo ;;
     check)
       # Every cloned repo's scripts/op-env.sh names its Environment; try each with the keychain token.
       MODE=check; lobster_banner "v$(installed_version)" "which dev Environments the keychain token can read"

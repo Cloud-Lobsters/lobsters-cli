@@ -25,7 +25,7 @@ Before you start: the 1Password app signed in with **Integrate with 1Password CL
 | `lobsters-cli upgrade [X.Y.Z]` | fetch a release, verify it, show what changes, install it (asks for your password) |
 | `lobsters-cli status` | refresh and print `~/.local/state/cloud-lobsters/status.json` |
 | `lobsters-cli remove` | take the team setup out again |
-| `lobsters-cli token sync` | engineers only: copy the team's shared `dev-readers` 1Password service-account token from the Engineering vault into your OS keychain (`setup` does this too when it can, and otherwise just says so); offers a paste fallback when the vault is not readable; `--shared` replaces a token you stored by hand |
+| `lobsters-cli token sync` | engineers only: copy the team's shared `dev-readers` 1Password service-account token from the Engineering vault into your OS keychain (`setup` does this too when it can, and otherwise just says so). The vault is the only way in; `--shared` replaces a different token already in the keychain |
 | `lobsters-cli token check` | try every cloned repo's dev Environment with the keychain token and list the ones it cannot read |
 
 ## How it works
