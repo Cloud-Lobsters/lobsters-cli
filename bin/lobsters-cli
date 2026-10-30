@@ -560,9 +560,11 @@ token_store() {
 }
 token_fp() { token_read | sha256 | cut -c1-16; }
 token_remove_hint() { [ $OS = mac ] && echo "security delete-generic-password -s $TOKEN_SERVICE" || echo "secret-tool clear service $TOKEN_SERVICE"; }
-# setup_token [force]: the shared token into the keychain. `force` replaces a hand-stored one.
+# setup_token [force|manual]: the shared token into the keychain. `force` replaces a hand-stored
+# one; `manual` (token sync only) offers the paste fallback. setup itself never prompts: not
+# everyone with lobsters-cli runs dev servers or has the Engineering vault.
 setup_token() {
-  step "6. 1Password service-account token (dev servers start with 1Password locked)"
+  step "6. 1Password service-account token (engineers: dev servers start with 1Password locked)"
   local opv shared want have label answer
   # Every repo's scripts/op-env.sh runs `op run --environment`, which needs op 2.41.0 or later.
   opv="$(op --version 2>/dev/null | sed 's/-.*//')"
@@ -590,8 +592,8 @@ setup_token() {
   fi
   unset shared
   if token_present; then ok "token in the keychain (not compared with $TOKEN_REF: 1Password locked, or no Engineering vault access)"; return; fi
-  if [ $MODE = check ] || [ ! -t 0 ]; then
-    note "no token in the keychain. Unlock 1Password and run lobsters-cli setup: it copies the shared dev-readers token from $TOKEN_REF (no Engineering vault access? ask an admin)"; return
+  if [ "${1:-}" != manual ] || [ $MODE = check ] || [ ! -t 0 ]; then
+    note "no token in the keychain, and $TOKEN_REF is not readable (1Password locked, or no Engineering vault access). Only engineers running dev servers need one: unlock 1Password and run lobsters-cli token sync"; return
   fi
   printf '  No token in the keychain, and %s is not readable (1Password locked, or no vault access). Paste a token to store one by hand? It goes into the keychain tool, not this script. [y/N] ' "$TOKEN_REF"
   read -r answer
@@ -610,7 +612,7 @@ cmd_token() {
   case "${1:-}" in
     sync)
       MODE=install; lobster_banner "v$(installed_version)" "the shared dev-readers token"
-      setup_token "$([ "${2:-}" = --shared ] && echo force)"; echo ;;
+      setup_token "$([ "${2:-}" = --shared ] && echo force || echo manual)"; echo ;;
     check)
       # Every cloned repo's scripts/op-env.sh names its Environment; try each with the keychain token.
       MODE=check; lobster_banner "v$(installed_version)" "which dev Environments the keychain token can read"
