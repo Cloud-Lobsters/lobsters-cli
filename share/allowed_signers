@@ -1,8 +1,10 @@
-# Maintainer keys that may sign a claude-lobsters-cli release. Format: ssh allowed_signers.
-# One line per maintainer, principal release@cloudlobsters.com, namespace claude-lobsters-cli.
-# The installed copy of this file is what `claude-lobsters-cli upgrade` trusts, so a new key gets
+# Maintainer keys that may sign a lobsters-cli release. Format: ssh allowed_signers.
+# One line per maintainer, principal release@cloudlobsters.com, namespace lobsters-cli.
+# The installed copy of this file is what `lobsters-cli upgrade` trusts, so a new key gets
 # in only through a release signed by an existing one.
+# claude-lobsters-cli is the namespace of releases up to the rename (0.2.x and the release
+# that moves machines over); drop it once every machine runs 0.3.0 or later.
 #
-# release@cloudlobsters.com namespaces="claude-lobsters-cli" ssh-ed25519 AAAA... <second maintainer> (1Password)
-release@cloudlobsters.com namespaces="claude-lobsters-cli" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII4ekPr/GQcnP7xCan0l2HkQ2Opp22rGInyszAN1KfHX nemo (1Password: Employee/claude-team release key)
-release@cloudlobsters.com namespaces="claude-lobsters-cli" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDlsnGV1y339qvNI/76PQsG+1AgMwZtGcrhcv+PFRpkm duncan (1Password: Employee/claude-lobsters-cli release key)
+# release@cloudlobsters.com namespaces="lobsters-cli,claude-lobsters-cli" ssh-ed25519 AAAA... <next maintainer> (1Password)
+release@cloudlobsters.com namespaces="lobsters-cli,claude-lobsters-cli" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAII4ekPr/GQcnP7xCan0l2HkQ2Opp22rGInyszAN1KfHX nemo (1Password: Employee/claude-team release key)
+release@cloudlobsters.com namespaces="lobsters-cli,claude-lobsters-cli" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDlsnGV1y339qvNI/76PQsG+1AgMwZtGcrhcv+PFRpkm duncan (1Password: Employee/claude-lobsters-cli release key)
