@@ -6,7 +6,7 @@ refuses to cut a release without them, names the section after the version, and 
 the GitHub Release body. `lobsters-cli upgrade` shows every section between the installed
 version and the one it is about to install, read from the signed tarball.
 
-## Unreleased
+## 0.5.5 (2026-10-30)
 
 - `lobsters-cli upgrade` shows the release notes for every version it is about to skip over, before it asks to install.
 - A release cannot be cut without notes: `scripts/release` refuses when this file has none for the version, and the GitHub Release carries them.
