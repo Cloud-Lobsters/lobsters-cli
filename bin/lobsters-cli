@@ -521,8 +521,9 @@ EOF
 # Every repo's scripts/op-env.sh runs `op` as this token when the OS keychain holds it, so a dev
 # server starts while 1Password is locked (a phone through Orca); without it op asks the desktop
 # app. The team shares ONE read-only service account, dev-readers (dev Environments only; SEC014,
-# revised 2026-10-30): its token is the item below in the Engineering vault. setup copies it into
-# the keychain while 1Password is unlocked, so a new dev does nothing and a rotated token reaches
+# revised 2026-10-30): its token is the item named below in the Engineering vault. setup copies it into
+# the keychain while 1Password is unlocked (read by title: 1Password's default item name for a
+# saved service-account token), so a new dev does nothing and a rotated token reaches
 # every machine at its next setup (or `lobsters-cli token sync`). Someone who stored a token of
 # their own keeps it: the item label tells the two apart. The vault is the only way in: there
 # is no paste path, so no token travels outside 1Password. Keychain item: service
@@ -530,7 +531,11 @@ EOF
 # `secret-tool`). The token is only ever piped: into sha256, the keychain tool, or op's
 # environment; never printed, never through an agent. basecamp ADR 0057.
 TOKEN_SERVICE="1password-service-account"
-TOKEN_REF="op://Engineering/dev-readers-service-account/credential"
+# 1Password's default title for a saved service-account token, so nobody renames anything.
+# A colon is not allowed in an op:// reference, hence `op item get` by title, not `op read`.
+TOKEN_VAULT="Engineering"
+TOKEN_ITEM="Service Account Auth Token: dev-readers"
+TOKEN_REF="$TOKEN_VAULT › $TOKEN_ITEM"
 TOKEN_LABEL="1Password service account (shared dev-readers)"
 token_present() {
   case $OS in
@@ -576,7 +581,8 @@ setup_token() {
     note "no secret-tool, so no token can be stored (Ubuntu: sudo apt install libsecret-tools; Omarchy has it)"; return
   fi
   # The shared token, through the desktop app (unlocked, with access to the Engineering vault).
-  shared="$(op read "$TOKEN_REF" </dev/null 2>/dev/null)" || shared=""
+  shared="$(op item get "$TOKEN_ITEM" --vault "$TOKEN_VAULT" --fields label=credential --reveal </dev/null 2>/dev/null)" || shared=""
+  case "$shared" in ops_*) ;; *) shared="" ;; esac
   if [ -n "$shared" ]; then
     want="$(printf '%s' "$shared" | sha256 | cut -c1-16)"
     have=""; token_present && have="$(token_fp)"
