@@ -739,6 +739,27 @@ verify_release() {
   grep -q "^$sum " "$dir/SHA256SUMS" || die "checksum mismatch for $asset. Not installing."
 }
 
+# release_notes FILE FROM TO: print the CHANGELOG.md sections for the versions after FROM up
+# to TO (only TO's own when FROM is empty), as the file orders them. A section is a
+# `## X.Y.Z ...` heading and its lines up to the next heading. False when there are none.
+release_notes() {
+  local file="$1" from="$2" to="$3" v keep=0 found=0 line
+  [ -f "$file" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      "## "*)
+        v="${line#\#\# }"; v="${v%% *}"; v="${v#v}"; keep=0
+        [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+        if [ -z "$from" ]; then [ "$v" = "$to" ] || continue
+        else version_lt "$from" "$v" && ! version_lt "$to" "$v" || continue; fi
+        [ $found = 1 ] && echo; keep=1; found=1; printf '  \033[1m%s\033[0m\n' "${line#\#\# }" ;;
+      "#"*) keep=0 ;;
+      *) [ $keep = 1 ] && [ -n "$line" ] && printf '  %s\n' "$line" ;;
+    esac
+  done < "$file"
+  [ $found = 1 ]
+}
+
 # install-files SRC: copy a verified, unpacked release tree into $PREFIX. Runs as root.
 cmd_install_files() {
   local src="$1"
@@ -781,6 +802,10 @@ cmd_upgrade() {
   tree="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d -name "*lobsters-cli-$want" | head -1)"   # old or new folder name
   [ -n "$tree" ] && [ -x "$tree/bin/lobsters-cli" ] || die "unexpected archive layout"
   echo "Verified: signed by a maintainer, checksums match."
+  echo
+  if version_lt "$inst" "$want"; then echo "Release notes ($inst → $want):"; release_notes "$tree/CHANGELOG.md" "$inst" "$want"
+  else echo "Release notes ($want):"; release_notes "$tree/CHANGELOG.md" "" "$want"; fi \
+    || echo "  (this release ships no notes)"
   echo
   echo "Changes to what runs on this machine ($inst → $want):"
   diff -u "$SHARE/managed-settings.json" "$tree/share/managed-settings.json" | sed -n '3,$p' | sed 's/^/  /' || true

@@ -3,11 +3,13 @@
 #
 #   scripts/release 1.3.0
 #
-# What it does, in order: writes VERSION, commits, tags vX.Y.Z, builds the tarball with
-# `git archive` (so the release is exactly the tag), writes SHA256SUMS, signs it with your
-# release key (the one 1Password prompt), checks the signature against share/allowed_signers
-# so a wrong key is caught here and not on someone's laptop, pushes, and creates the GitHub
-# Release with the three files. No CI, no secrets anywhere but your 1Password.
+# What it does, in order: checks CHANGELOG.md has notes for the release (under `## Unreleased`
+# or `## X.Y.Z`; no notes, no release), names that section after the version, writes VERSION,
+# commits, tags vX.Y.Z, builds the tarball with `git archive` (so the release is exactly the
+# tag), writes SHA256SUMS, signs it with your release key (the one 1Password prompt), checks
+# the signature against share/allowed_signers so a wrong key is caught here and not on
+# someone's laptop, pushes, and creates the GitHub Release with the three files and the notes
+# as its body. No CI, no secrets anywhere but your 1Password.
 #
 # Your key: an SSH key in 1Password whose public half is listed in share/allowed_signers.
 # Point LOBSTERS_CLI_SIGNING_KEY at the public key file (default ~/.ssh/cloud-lobsters-release.pub);
@@ -39,11 +41,26 @@ banner() { sed -n '/^# ---- banner: the lobster/,/^# ---- end banner/p' "$1"; }
 [ -n "$(banner install.sh)" ] && [ "$(banner install.sh)" = "$(banner bin/lobsters-cli)" ] \
   || die "the banner block differs between install.sh and bin/lobsters-cli; make them identical"
 
+# Release notes: the CHANGELOG.md section for this version, or the Unreleased one, which the
+# release commit names after the version. A section is its lines up to the next heading.
+changelog_section() { awk -v h="$1" '
+  /^#/ { if (on) exit; on = ($0 ~ "^## " h "( |$)") ; next }
+  on { print }' CHANGELOG.md; }
+has_text() { grep -q '[^[:space:]]' <<< "$1"; }
+notes="$(changelog_section "$v")"
+if ! has_text "$notes"; then
+  notes="$(changelog_section Unreleased)"
+  has_text "$notes" || die "CHANGELOG.md has no notes for $v. Write them under '## Unreleased' (one bullet per change, for the person upgrading), commit, and run this again. No notes, no release."
+  sed -i.bak "s/^## Unreleased\$/## $v ($(date +%F))/" CHANGELOG.md && rm -f CHANGELOG.md.bak
+  git add CHANGELOG.md
+fi
+notes="$(sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' <<< "$notes" | sed '/./,$!d')"   # trim blank lines
+
 if [ "$(tr -d '[:space:]' < VERSION)" != "$v" ]; then
   echo "$v" > VERSION
   git add VERSION
-  git commit -q -m "release: v$v"
 fi
+git diff --cached --quiet || git commit -q -m "release: v$v"
 git tag -a "v$v" -m "lobsters-cli v$v"
 
 asset="lobsters-cli-$v.tar.gz"; sums_name="$asset"; sign_ns="$NAMESPACE"; extra_asset=""
@@ -85,5 +102,7 @@ make_tarball
 )
 
 git push -q origin main "v$v"
-gh release create "v$v" dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.sig --repo "$TOOLING_REPO" --title "v$v" --generate-notes
+prev="$(git tag --sort=-v:refname | grep -v "^v$v\$" | head -1)"
+{ printf '%s\n' "$notes"; [ -z "$prev" ] || printf '\n**Full changelog**: https://github.com/%s/compare/%s...v%s\n' "$TOOLING_REPO" "$prev" "$v"; } > dist/notes.md
+gh release create "v$v" dist/*.tar.gz dist/SHA256SUMS dist/SHA256SUMS.sig --repo "$TOOLING_REPO" --title "v$v" --notes-file dist/notes.md
 echo "Released v$v. Machines see it at their next session start and install it with: lobsters-cli upgrade"

@@ -47,7 +47,7 @@ Maintainers only. From a clean checkout of `main`:
 scripts/release 1.3.0
 ```
 
-Writes `VERSION`, commits, tags, builds the tarball from the tag, writes `SHA256SUMS`, signs it with your release key (one 1Password prompt), checks the signature against `share/allowed_signers`, pushes, and creates the GitHub Release. No CI, no secrets outside your 1Password.
+First the notes: every release ships with release notes, and the script refuses to cut one without them. Write them in `CHANGELOG.md` under `## Unreleased` as you go (one bullet per change, for the person upgrading); the release names that section after the version. Then it writes `VERSION`, commits, tags, builds the tarball from the tag, writes `SHA256SUMS`, signs it with your release key (one 1Password prompt), checks the signature against `share/allowed_signers`, pushes, and creates the GitHub Release with the notes as its body. `lobsters-cli upgrade` shows the notes for every version between the installed one and the new one, read from the signed tarball, before it asks to install. No CI, no secrets outside your 1Password.
 
 Your release key is an SSH key in 1Password whose public half is in `share/allowed_signers`. Adding a maintainer is a commit that adds their line, shipped in a release signed by an existing key. Machines verify every release against the signers file they already have, so a new key cannot admit itself.
 
@@ -72,4 +72,5 @@ share/allowed_signers         maintainer release keys
 share/swiftbar/, share/waybar/ menu-bar readers of status.json
 install.sh                    first install (curl | bash)
 scripts/release               cut a release
+CHANGELOG.md                  release notes; a release needs its section
 ```
