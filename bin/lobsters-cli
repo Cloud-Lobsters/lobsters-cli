@@ -13,6 +13,7 @@
 #   lobsters-cli check              only report; change nothing
 #   lobsters-cli upgrade [X.Y.Z]    fetch a release, verify its signature, show the diff, install
 #   lobsters-cli status             refresh and print ~/.local/state/cloud-lobsters/status.json
+#                                   (the newest-release lookup is cached for 30 minutes)
 #   lobsters-cli remove             take the team setup out again
 #   lobsters-cli statusline         one short token for the Claude Code status line
 #   lobsters-cli version
@@ -97,9 +98,20 @@ version_lt() {
 # Git over HTTPS, never a prompt, never a hang: fail if under 1 KB/s for 5 s.
 quiet_git() { GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=5 git "$@"; }
 # Newest vX.Y.Z tag on the public tooling repo. Read-only, anonymous, one round trip.
+# Cached in $STATE_DIR for TAG_TTL_MIN minutes (rules-sync shares the cache and the TTL);
+# `latest_version --fresh` always asks. A failed lookup keeps the last answer rather than
+# forgetting it, so a blip never makes a machine look up to date.
+TAG_TTL_MIN=30
+TAG_CACHE="$STATE_DIR/latest-tag"
+TAG_STAMP="$STATE_DIR/last-tag-check"
 latest_version() {
-  quiet_git ls-remote --tags --refs "https://github.com/$TOOLING_REPO" 'v[0-9]*' 2>/dev/null \
-    | sed -n 's#.*refs/tags/v##p' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1
+  local t
+  if [ "${1:-}" = --fresh ] || [ ! -f "$TAG_STAMP" ] || [ -n "$(find "$TAG_STAMP" -mmin +$TAG_TTL_MIN 2>/dev/null)" ]; then
+    t="$(quiet_git ls-remote --tags --refs "https://github.com/$TOOLING_REPO" 'v[0-9]*' 2>/dev/null \
+        | sed -n 's#.*refs/tags/v##p' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)"
+    if [ -n "$t" ]; then mkdir -p "$STATE_DIR"; echo "$t" > "$TAG_CACHE"; touch "$TAG_STAMP"; echo "$t"; return; fi
+  fi
+  cat "$TAG_CACHE" 2>/dev/null
 }
 
 # ---- banner: the lobster -------------------------------------------------------------
@@ -618,7 +630,7 @@ cmd_install_files() {
 cmd_upgrade() {
   local want="${1:-}" inst lat tmp tree asset base
   inst="$(installed_version)"
-  lat="$(latest_version)"; [ -n "$lat" ] || die "could not read releases of $TOOLING_REPO (offline?)"
+  lat="$(latest_version --fresh)"; [ -n "$lat" ] || die "could not read releases of $TOOLING_REPO (offline?)"
   if [ -z "$want" ]; then
     want="$lat"
     if ! version_lt "$inst" "$want"; then
