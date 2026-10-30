@@ -419,7 +419,7 @@ setup_model() {
 
 setup_mcp() {
   step "4. MCP servers (keys from your 1Password item claude-code-mcp)"
-  local src="$SHARE/mcp-servers.json" ours hash current op_ok name raw have cmd want field
+  local src="$SHARE/mcp-servers.json" ours hash current op_ok name raw have cmd want field found
   local -a keep=(); local failed=0
   ours="$([ -f "$MCP_STATE" ] && tail -n +2 "$MCP_STATE")"
   is_ours() { printf '%s\n' "$ours" | grep -qxF "$1"; }
@@ -435,7 +435,14 @@ setup_mcp() {
     raw="$(jq -c --arg n "$name" '.[$n]' "$src")"
     have="$(echo "$current" | jq -cS --arg n "$name" '.[$n] // empty')"
     cmd="$(echo "$raw" | jq -r 'if .type == "stdio" then .command else empty end')"
-    if [ -n "$cmd" ] && [ ! -x "$cmd" ]; then note "$name: skipped, $cmd is not on this machine"; continue; fi
+    # A stdio server's command is written for one OS (the 1Password MCP lives in the Mac app
+    # bundle; Linux installs it as /usr/bin/1password-mcp). The list names the Mac path; any other
+    # machine finds the same program by its name on PATH and uses that.
+    if [ -n "$cmd" ] && [ ! -x "$cmd" ]; then
+      found="$(command -v "$(basename "$cmd")" 2>/dev/null || true)"
+      if [ -n "$found" ]; then raw="$(echo "$raw" | jq -c --arg c "$found" '.command = $c')"; cmd="$found"
+      else note "$name: skipped, $cmd is not on this machine"; continue; fi
+    fi
     if echo "$raw" | grep -q 'op://'; then
       # One probe per run. 1Password may show an "allow CLI access" dialog here: approving it is enough.
       if [ -z "$op_ok" ]; then
