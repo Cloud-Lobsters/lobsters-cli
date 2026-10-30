@@ -12,7 +12,7 @@ curl -fsSL https://raw.githubusercontent.com/Cloud-Lobsters/lobsters-cli/main/in
 
 It installs Claude Code, `gh` and `jq` if they are missing, stops to ask you to `gh auth login` if you have not, downloads the newest release, checks its signature and checksums, prints the maintainer key fingerprint (compare it with the onboarding note), installs under `/usr/local` (asks for your password once) and runs `lobsters-cli setup`. Then start Claude Code, accept the one-time managed-hook dialog, and sign in to Ref with `/mcp`.
 
-Before you start: the 1Password app signed in with **Integrate with 1Password CLI** on, and an item `claude-code-mcp` in your Employee vault with a `pm_authorization` field (`Bearer sk_live_…` from project.cloudlobsters.com/dashboard/preferences). `fireflies_authorization` too if you use Fireflies. Optional: a 1Password **service account** of your own (read-only, your `*/development` Environments; a 1Password admin makes it) lets every repo's `scripts/op-env.sh` run `op` without the desktop app, so `pnpm dev` starts while 1Password is locked or from a phone; `setup` stores its token in the OS keychain when you paste it. See basecamp `docs/50. standards/20. local-env.md`.
+Before you start: the 1Password app signed in with **Integrate with 1Password CLI** on, and an item `claude-code-mcp` in your Employee vault with a `pm_authorization` field (`Bearer sk_live_…` from project.cloudlobsters.com/dashboard/preferences). `fireflies_authorization` too if you use Fireflies. Every repo's `scripts/op-env.sh` runs `op` as the team's shared read-only **service account** `dev-readers` (dev Environments only) when your OS keychain holds its token, so `pnpm dev` starts while 1Password is locked or from a phone; `setup` copies that token from the Engineering vault item `dev-readers-service-account` into the keychain, and `lobsters-cli token sync` refreshes it after a rotation. See basecamp `docs/50. standards/20. local-env.md`.
 
 **Already on `claude-lobsters-cli`** (the name until v0.3.0, after `claude-team` until v0.2.0)? Run `claude-lobsters-cli upgrade` as usual. The release installs itself as `lobsters-cli`, takes the old files out and carries on; the old GitHub URLs redirect.
 
@@ -25,6 +25,8 @@ Before you start: the 1Password app signed in with **Integrate with 1Password CL
 | `lobsters-cli upgrade [X.Y.Z]` | fetch a release, verify it, show what changes, install it (asks for your password) |
 | `lobsters-cli status` | refresh and print `~/.local/state/cloud-lobsters/status.json` |
 | `lobsters-cli remove` | take the team setup out again |
+| `lobsters-cli token sync` | copy the team's shared `dev-readers` 1Password service-account token from the Engineering vault into your OS keychain (`setup` does this too); `--shared` replaces a token you stored by hand |
+| `lobsters-cli token check` | try every cloned repo's dev Environment with the keychain token and list the ones it cannot read |
 
 ## How it works
 
