@@ -17,6 +17,7 @@
 #   lobsters-cli remove             take the team setup out again
 #   lobsters-cli statusline         one short token for the Claude Code status line
 #   lobsters-cli token sync|check   the shared dev-readers 1Password token into the keychain / which Environments it reads
+#   lobsters-cli hub ...            the shared agent box: one Unix account per person (lobsters-cli hub help)
 #   lobsters-cli version
 #
 # Layout on disk (all root-owned, all written by `install-files`):
@@ -71,6 +72,15 @@ if [ -n "${LOBSTERS_CLI_CODE_DIR:-${CODE_DIR:-}}" ]; then
 elif [ -s "$CODE_DIR_FILE" ]; then CODE_DIR="$(tr -d '[:space:]' < "$CODE_DIR_FILE")"
 else CODE_DIR="$HOME/Documents"; fi
 BASECAMP="$CODE_DIR/basecamp"
+# A hub is a shared Linux box (the office Mac Pro "lobster") where every person has their own
+# Unix account, reached by Tailscale SSH. `hub init` writes HUB_CONF; its presence turns on the
+# hub behaviour of `setup` (Claude Code into the home, a file-backed token, git identity from gh).
+HUB_CONF="/etc/cloud-lobsters/hub.conf"
+HUB_DIR="/etc/cloud-lobsters/hub"                 # root only: people registry, tokens
+HUB_LIB="/var/lib/cloud-lobsters/hub"              # the Orca AppImage copied into every new home
+HUB=0; [ -f "$HUB_CONF" ] && HUB=1
+# Per-user token file on a hub (an ssh-only account has no keyring daemon to ask).
+TOKEN_FILE="$HOME/.config/cloud-lobsters/op-token"
 
 installed_version() { { tr -d '[:space:]' < "$SHARE/VERSION"; } 2>/dev/null || echo 0.0.0; }
 
@@ -263,7 +273,12 @@ cmd_statusline() {
 setup_prereqs() {
   step "0. Before you start"
   command -v jq >/dev/null     || die "jq is missing (install.sh installs it; or: brew install jq / apt install jq / pacman -S jq)"
-  command -v claude >/dev/null && ok "Claude Code" || die "Claude Code is missing: curl -fsSL https://claude.ai/install.sh | bash"
+  if command -v claude >/dev/null; then ok "Claude Code"
+  elif [ $HUB = 1 ] && [ $MODE = install ]; then
+    doing "install Claude Code into this home"
+    curl -fsSL https://claude.ai/install.sh 2>/dev/null | bash >/dev/null 2>&1
+    command -v claude >/dev/null && ok "Claude Code" || die "Claude Code did not install: curl -fsSL https://claude.ai/install.sh | bash"
+  else die "Claude Code is missing: curl -fsSL https://claude.ai/install.sh | bash"; fi
   command -v gh >/dev/null     && ok "GitHub CLI" || die "gh is missing (install.sh installs it)"
   [ $MODE = remove ] && return
   gh auth status >/dev/null 2>&1 && ok "GitHub (gh) signed in" || die "sign in to GitHub first: gh auth login"
@@ -446,9 +461,11 @@ setup_mcp() {
     if echo "$raw" | grep -q 'op://'; then
       # One probe per run. 1Password may show an "allow CLI access" dialog here: approving it is enough.
       if [ -z "$op_ok" ]; then
-        if op_err="$(op vault list </dev/null 2>&1 >/dev/null)"; then op_ok=1
+        if [ $HUB = 1 ] && ! op whoami </dev/null >/dev/null 2>&1; then op_ok=hub
+        elif op_err="$(op vault list </dev/null 2>&1 >/dev/null)"; then op_ok=1
         else op_ok=0; op_err="$(echo "$op_err" | sed 's/^\[ERROR\] [0-9/: ]*//' | head -1)"; fi
       fi
+      if [ "$op_ok" = hub ]; then note "$name: skipped on the hub (no 1Password app here; op signin as yourself, then setup again, adds it)"; continue; fi
       if [ "$op_ok" = 0 ]; then need "$name not added. 1Password said: ${op_err:-no answer}. Approve its prompt if one appeared, or unlock it, or turn on Settings → Developer → Integrate with 1Password CLI; then run lobsters-cli setup again"; failed=1; continue; fi
       field="$(echo "$raw" | grep -o 'op://[^ }"]*' | head -1)"
       if ! want="$(echo "$raw" | op inject 2>/tmp/lobsters-cli-op.$$)"; then
@@ -519,9 +536,37 @@ EOF
       fi
       [ $MODE = check ] || pgrep -xq SwiftBar || open -a SwiftBar
     fi
+  elif [ $HUB = 1 ]; then hub_setup_person
   else
     note "Waybar: add the module from $SHARE/waybar/README.md"
   fi
+}
+
+# On a hub, the part of a person's account that carries their identity. Runs as the person.
+hub_setup_person() {
+  local name email login id unit="$HOME/.config/systemd/user/orca-serve.service" paired
+  # Commits from this account are the whole point: name and email from the GitHub login.
+  if [ -n "$(git config --global user.email 2>/dev/null)" ] && [ -n "$(git config --global user.name 2>/dev/null)" ]; then
+    ok "git commits as $(git config --global user.name) <$(git config --global user.email)>"
+  elif act "set your git name and email from your GitHub account"; then
+    login="$(gh api user --jq .login 2>/dev/null)"; id="$(gh api user --jq .id 2>/dev/null)"
+    name="$(gh api user --jq '.name // empty' 2>/dev/null)"; [ -n "$name" ] || name="$login"
+    email="$(gh api user/emails --jq '.[] | select(.primary and .verified) | .email' 2>/dev/null | head -1)"
+    [ -n "$email" ] || email="$(gh api user --jq '.email // empty' 2>/dev/null)"
+    [ -n "$email" ] || email="$id+$login@users.noreply.github.com"
+    if [ -n "$login" ]; then git config --global user.name "$name"; git config --global user.email "$email"; ok "git commits as $name <$email>"
+    else need "gh gave no account; sign in (gh auth login) and run setup again"; fi
+  fi
+  if [ -s "$CLAUDE/.credentials.json" ]; then ok "Claude Code signed in"
+  else need "sign in to Claude Code with the company account: run claude, open the URL it prints on your laptop"; fi
+  if [ ! -f "$unit" ]; then need "no Orca server in this account: an admin runs sudo lobsters-cli hub add $USER@… again"; return; fi
+  if systemctl --user is-enabled orca-serve.service >/dev/null 2>&1; then ok "Orca server unit enabled"
+  elif act "enable your Orca server"; then systemctl --user enable orca-serve.service >/dev/null 2>&1 || need "could not enable orca-serve"; fi
+  paired="$(jq 'if type == "array" then length else 0 end' "$HOME/.config/orca/orca-devices.json" 2>/dev/null || echo 0)"
+  if [ "${paired:-0}" -gt 0 ]; then
+    if systemctl --user is-active orca-serve.service >/dev/null 2>&1; then ok "Orca server running ($paired device(s) paired)"
+    elif act "start your Orca server ($paired device(s) paired)"; then systemctl --user start orca-serve.service || need "orca-serve did not start: journalctl --user -u orca-serve"; fi
+  else need "pair your phone or laptop with Orca: orca-pair (prints the link), Ctrl-C when paired, then systemctl --user start orca-serve"; fi
 }
 
 # ---- the 1Password service-account token ---------------------------------------------
@@ -545,18 +590,21 @@ TOKEN_ITEM="Service Account Auth Token: dev-readers"
 TOKEN_REF="$TOKEN_VAULT › $TOKEN_ITEM"
 TOKEN_LABEL="1Password service account (shared dev-readers)"
 token_present() {
+  [ $HUB = 1 ] && { [ -s "$TOKEN_FILE" ]; return; }
   case $OS in
     mac)   security find-generic-password -s "$TOKEN_SERVICE" -w >/dev/null 2>&1 ;;
     linux) command -v secret-tool >/dev/null && secret-tool lookup service "$TOKEN_SERVICE" >/dev/null 2>&1 ;;
   esac
 }
 token_read() {
+  [ $HUB = 1 ] && { cat "$TOKEN_FILE" 2>/dev/null; return; }
   case $OS in
     mac)   security find-generic-password -s "$TOKEN_SERVICE" -w 2>/dev/null ;;
     linux) secret-tool lookup service "$TOKEN_SERVICE" 2>/dev/null ;;
   esac
 }
 token_label() {
+  [ $HUB = 1 ] && { cat "$TOKEN_FILE.label" 2>/dev/null; return; }
   case $OS in
     mac)   security find-generic-password -s "$TOKEN_SERVICE" 2>/dev/null | sed -n 's/.*"labl"<blob>="\(.*\)"$/\1/p' | head -1 ;;
     linux) secret-tool search service "$TOKEN_SERVICE" 2>/dev/null | sed -n 's/^label = //p' | head -1 ;;
@@ -564,6 +612,7 @@ token_label() {
 }
 # token_store LABEL: the token on stdin goes into the keychain, replacing the item.
 token_store() {
+  [ $HUB = 1 ] && { (umask 077; mkdir -p "$(dirname "$TOKEN_FILE")" && cat > "$TOKEN_FILE" && echo "$1" > "$TOKEN_FILE.label"); return; }
   case $OS in
     # `security` takes the secret only as an argument or a prompt, so for this one call it is
     # an argument (visible to this user's own processes for that instant).
@@ -572,7 +621,7 @@ token_store() {
   esac
 }
 token_fp() { token_read | sha256 | cut -c1-16; }
-token_remove_hint() { [ $OS = mac ] && echo "security delete-generic-password -s $TOKEN_SERVICE" || echo "secret-tool clear service $TOKEN_SERVICE"; }
+token_remove_hint() { [ $HUB = 1 ] && { echo "rm $(tilde "$TOKEN_FILE")"; return; }; [ $OS = mac ] && echo "security delete-generic-password -s $TOKEN_SERVICE" || echo "secret-tool clear service $TOKEN_SERVICE"; }
 # setup_token [force]: the shared token into the keychain, from the vault only. `force` replaces
 # a token that is not the shared one. Never prompts: not everyone with lobsters-cli runs dev
 # servers or has the Engineering vault, and those who don't must not get the token.
@@ -583,6 +632,12 @@ setup_token() {
   opv="$(op --version 2>/dev/null | sed 's/-.*//')"
   if [ -n "$opv" ] && [ "$(echo "$opv" | awk -F. '{printf "%d%03d%03d", $1,$2,$3}')" -lt 2041000 ]; then
     need "op is $opv; scripts/op-env.sh needs 2.41.0 or later ($([ $OS = mac ] && echo 'brew upgrade --cask 1password-cli' || echo 'update 1password-cli with your package manager'))"
+  fi
+  if [ $HUB = 1 ]; then
+    # No 1Password app on a hub: `hub add` places the shared token, from the admin's 1Password.
+    if token_present; then ok "the shared dev-readers token is in $(tilde "$TOKEN_FILE"); op run works here"
+    else note "no dev-readers token in this home. An admin: sudo lobsters-cli hub token dev-readers (see lobsters-cli hub help)"; fi
+    return
   fi
   if [ $OS = linux ] && ! command -v secret-tool >/dev/null; then
     note "no secret-tool, so no token can be stored (Ubuntu: sudo apt install libsecret-tools; Omarchy has it)"; return
@@ -820,6 +875,319 @@ cmd_upgrade() {
   LOBSTERS_CLI_NO_BANNER=1 exec "$PREFIX/bin/lobsters-cli" setup
 }
 
+# ---- hub: the shared agent box ---------------------------------------------------------
+# One Linux machine (the office Mac Pro "lobster") that everyone reaches over Tailscale SSH and
+# that runs Claude Code and Orca for them. Every person has their own Unix account there, named
+# after the local part of their login email, so commits, pushes and Orca sessions carry their
+# own identity; Tailscale SSH maps nemo@example.com to the account "nemo" by itself with the
+# policy rule  {"src": ["autogroup:member"], "dst": ["tag:server"], "users": ["localpart:*@example.com"]}.
+# Claude Code in each home is signed in as the company account; gh and git as the person.
+#
+#   sudo lobsters-cli hub init [--orca PATH] [--retire USER] [--domain D]   once, on the box
+#   sudo lobsters-cli hub token dev-readers|tailscale   store a secret, piped in from an admin's 1Password
+#   sudo lobsters-cli hub add EMAIL [--sudo]            the account, its Orca server, its token
+#   sudo lobsters-cli hub remove EMAIL [--keep-home]
+#   sudo lobsters-cli hub list | check
+#   sudo lobsters-cli hub tailnet EMAIL [--approve]     the person's tailnet devices; approve the pending ones
+#
+# On disk (root only): $HUB_CONF (settings), $HUB_DIR/people (registry: user email port sudo added),
+# $HUB_DIR/dev-readers and $HUB_DIR/tailscale (secrets, 0600), $HUB_LIB/Orca.AppImage.
+# Secrets reach the box piped over ssh from `op read` on an admin's laptop; `hub init` adds a sudoers
+# line so that `hub token` alone needs no password (it only ever writes).
+HUB_PEOPLE="$HUB_DIR/people"
+hub_root() { [ "$(id -u)" = 0 ] || die "lobsters-cli hub $1 runs as root: sudo lobsters-cli hub $1 ..."; }
+hub_load() { [ -f "$HUB_CONF" ] || die "this machine is not a hub yet: sudo lobsters-cli hub init"; . "$HUB_CONF"; }
+hub_user_of() { local e; e="$(echo "$1" | tr 'A-Z' 'a-z')"; case "$e" in *@"$HUB_DOMAIN") echo "${e%@*}" ;; *) die "$1 is not a $HUB_DOMAIN login; Tailscale SSH maps the local part of that domain to the account" ;; esac; }
+hub_entry() { grep "^$1 " "$HUB_PEOPLE" 2>/dev/null | head -1; }           # by user
+hub_next_port() { local max; max="$(awk '{print $3}' "$HUB_PEOPLE" 2>/dev/null | sort -n | tail -1)"; echo $(( ${max:-$((HUB_PORT_FROM-1))} + 1 )); }
+hub_user_systemctl() { local u="$1"; shift; systemctl --user -M "$u@" "$@"; }   # the person's user manager (linger keeps it up)
+hub_ufw_active() { command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q '^Status: active'; }
+
+hub_init() {
+  hub_root init
+  local orca="" retire="" domain="" ip
+  while [ $# -gt 0 ]; do case "$1" in
+    --orca) orca="${2:?}"; shift 2 ;; --retire) retire="${2:?}"; shift 2 ;; --domain) domain="${2:?}"; shift 2 ;;
+    *) die "hub init: unknown option $1" ;; esac; done
+  lobster_banner "v$(installed_version)" "this machine becomes the shared agent box"
+  step "1. This machine"
+  [ $OS = linux ] || die "a hub is a Linux box"
+  command -v tailscale >/dev/null || die "tailscale is not installed"
+  ip="$(tailscale ip -4 2>/dev/null | head -1)"; [ -n "$ip" ] || die "tailscale is not up (tailscale up)"
+  ok "Tailscale IP $ip"
+  [ -n "$domain" ] || domain="$(tailscale status --json 2>/dev/null | jq -r '[.User[]? | .LoginName | select(contains("@"))][0] // empty' | sed 's/.*@//')"
+  [ -n "$domain" ] || die "could not tell the login domain from the tailnet; give it: --domain example.com"
+  ok "logins are @$domain; the account name is the part before the @"
+  if tailscale status --self --json 2>/dev/null | jq -e '.Self.Tags // [] | index("tag:server")' >/dev/null; then ok "tagged tag:server (no key expiry, no single owner)"
+  else need "tag this machine tag:server in the Tailscale console (machine → Edit ACL tags)"; fi
+  if [ "$(tailscale debug prefs 2>/dev/null | jq -r '.RunSSH // false')" = true ]; then ok "Tailscale SSH on"
+  else doing "turn on Tailscale SSH"; tailscale set --ssh || need "could not turn on Tailscale SSH"; fi
+  note "policy rule to have: {\"src\": [\"autogroup:member\"], \"dst\": [\"tag:server\"], \"users\": [\"localpart:*@$domain\"]} (action check for a browser re-auth every 12h)"
+  step "2. Orca (one copy per person; the AppImage updates itself in place)"
+  [ -n "$orca" ] || orca="$(ls /home/*/Applications/orca/Orca.AppImage 2>/dev/null | head -1)"
+  [ -n "$orca" ] && [ -f "$orca" ] || die "no Orca AppImage found under /home/*/Applications/orca; give one: --orca /path/to/Orca.AppImage"
+  install -d -m 0755 "$HUB_LIB"
+  if cmp -s "$orca" "$HUB_LIB/Orca.AppImage"; then ok "$HUB_LIB/Orca.AppImage"
+  else doing "keep a copy of $orca at $HUB_LIB"; install -m 0755 "$orca" "$HUB_LIB/Orca.AppImage"; fi
+  step "3. Tools and policy for every account"
+  if command -v op >/dev/null; then ok "1Password CLI $(op --version 2>/dev/null)"
+  elif command -v pacman >/dev/null; then doing "install the 1Password CLI"; pacman -S --needed --noconfirm 1password-cli >/dev/null 2>&1 && ok "1Password CLI" || need "1password-cli did not install (pacman -S 1password-cli)"
+  else need "install the 1Password CLI (op) 2.41 or later: developer.1password.com/docs/cli"; fi
+  if [ -f "$MANAGED" ] && cmp -s "$SHARE/managed-settings.json" "$MANAGED"; then ok "team policy on for every account ($MANAGED)"
+  else doing "install the team policy to $MANAGED"; install -d -m 0755 "$MANAGED_DIR"; install -m 0644 "$SHARE/managed-settings.json" "$MANAGED"; fi
+  if [ -f /etc/sudoers.d/lobsters-cli-hub ]; then ok "wheel may run hub token without a password (so a secret can be piped in over ssh)"
+  else
+    doing "let wheel run hub token without a password"
+    echo "%wheel ALL=(root) NOPASSWD: $PREFIX/bin/lobsters-cli hub token *" > /etc/sudoers.d/lobsters-cli-hub.tmp
+    if visudo -cf /etc/sudoers.d/lobsters-cli-hub.tmp >/dev/null 2>&1; then install -m 0440 /etc/sudoers.d/lobsters-cli-hub.tmp /etc/sudoers.d/lobsters-cli-hub; else need "sudoers line rejected by visudo"; fi
+    rm -f /etc/sudoers.d/lobsters-cli-hub.tmp
+  fi
+  hub_ufw_active && ok "ufw is active: each person's Orca port is opened on tailscale0 by hub add" || note "ufw is not active; nothing to open"
+  if [ -n "$retire" ]; then
+    step "4. Retire the shared account's Orca server ($retire)"
+    id "$retire" >/dev/null 2>&1 || die "no account $retire"
+    hub_user_systemctl "$retire" disable --now orca-serve.service >/dev/null 2>&1 && ok "orca-serve.service off for $retire" || note "$retire had no orca-serve.service"
+    pkill -u "$retire" -f 'orca-ide serve' 2>/dev/null && ok "stopped a foreground orca-ide serve of $retire" || true
+    note "the devices paired to it pair again, each with its owner's own server"
+  fi
+  step "5. Hub config"
+  install -d -m 0700 "$HUB_DIR"; install -d -m 0755 "$(dirname "$HUB_CONF")"
+  { echo "# written by lobsters-cli hub init on $(date -u +%F); edit by hand if the IP or domain changes"
+    echo "HUB_IP=$ip"; echo "HUB_DOMAIN=$domain"; echo "HUB_PORT_FROM=${HUB_PORT_FROM:-6768}"; echo "HUB_SHELL=${HUB_SHELL:-/usr/bin/bash}"; } > "$HUB_CONF"
+  chmod 0644 "$HUB_CONF"; touch "$HUB_PEOPLE"; chmod 0600 "$HUB_PEOPLE"
+  ok "$HUB_CONF written; setup now behaves as on a hub for every account"
+  step "Done"
+  echo "  Next, from an admin's laptop (the token never touches a clipboard):"
+  echo "    op read 'op://$TOKEN_VAULT/$TOKEN_ITEM/credential' | ssh $(hostname) sudo lobsters-cli hub token dev-readers"
+  echo "  then, for each person:  sudo lobsters-cli hub add name@$domain [--sudo]"
+}
+
+# hub token KIND: the secret on stdin (piped; or typed unseen at a terminal) into $HUB_DIR/KIND.
+# dev-readers: the shared read-only 1Password service account, copied into every home.
+# tailscale: an OAuth client (scopes users:read, devices:core) as two lines, id then secret.
+hub_token() {
+  hub_root token; hub_load
+  local kind="${1:-}" tmp
+  case "$kind" in dev-readers|tailscale) ;; *) die "hub token dev-readers | tailscale" ;; esac
+  tmp="$(mktemp -p "$HUB_DIR")"
+  if [ -t 0 ]; then
+    case $kind in
+      dev-readers) printf 'dev-readers token (not shown): '; IFS= read -rs line; echo; printf '%s\n' "$line" > "$tmp"; unset line ;;
+      tailscale)   printf 'OAuth client id: '; IFS= read -r a; printf 'client secret (not shown): '; IFS= read -rs b; echo; printf '%s\n%s\n' "$a" "$b" > "$tmp"; unset a b ;;
+    esac
+  else cat > "$tmp"; fi
+  case $kind in
+    dev-readers) grep -q '^ops_' "$tmp" || { rm -f "$tmp"; die "that is not a 1Password service-account token (ops_…)"; } ;;
+    tailscale)   [ "$(grep -c . "$tmp")" = 2 ] || { rm -f "$tmp"; die "expected two lines: client id, then client secret"; } ;;
+  esac
+  chmod 0600 "$tmp"; mv -f "$tmp" "$HUB_DIR/$kind"
+  echo "stored $HUB_DIR/$kind"
+  if [ $kind = dev-readers ]; then
+    local u h n=0
+    while read -r u _; do [ -n "$u" ] || continue; h="$(getent passwd "$u" | cut -d: -f6)"; [ -d "$h" ] || continue; hub_place_token "$u" "$h" && n=$((n+1)); done < "$HUB_PEOPLE"
+    echo "placed in $n home(s)"
+  fi
+}
+# hub_place_token USER HOME: the shared token into that home's token file (what setup_token reads on a hub).
+hub_place_token() {
+  [ -s "$HUB_DIR/dev-readers" ] || return 1
+  local f="$2/.config/cloud-lobsters/op-token"
+  mkdir -p "$2/.config/cloud-lobsters" && chown "$1:$1" "$2/.config" "$2/.config/cloud-lobsters" && chmod 0700 "$2/.config/cloud-lobsters"
+  install -m 0600 -o "$1" -g "$1" "$HUB_DIR/dev-readers" "$f" && echo "$TOKEN_LABEL" > "$f.label" && chown "$1:$1" "$f.label"
+}
+
+hub_add() {
+  hub_root add; hub_load
+  local email="" sudo=0 u h port extra="" entry
+  while [ $# -gt 0 ]; do case "$1" in --sudo) sudo=1; shift ;; -*) die "hub add: unknown option $1" ;; *) email="$1"; shift ;; esac; done
+  [ -n "$email" ] || die "hub add EMAIL [--sudo]"
+  email="$(echo "$email" | tr 'A-Z' 'a-z')"; u="$(hub_user_of "$email")"
+  [[ "$u" =~ ^[a-z0-9][a-z0-9._-]*$ ]] || die "'$u' cannot be a Unix account name; give the person a plainer login alias"
+  case "$u" in *.*) extra="--badname" ;; esac
+  lobster_banner "v$(installed_version)" "$email on this hub"
+  step "1. Account $u"
+  if id "$u" >/dev/null 2>&1; then ok "exists"; else doing "create it"; useradd -m -s "$HUB_SHELL" $extra "$u" || die "useradd failed"; fi
+  h="$(getent passwd "$u" | cut -d: -f6)"
+  if [ $sudo = 1 ]; then
+    id -nG "$u" | tr ' ' '\n' | grep -qx wheel && ok "in wheel (sudo)" || { doing "add to wheel (sudo)"; usermod -aG wheel "$u"; }
+    if [ "$(passwd -S "$u" 2>/dev/null | awk '{print $2}')" = P ]; then ok "has a password for sudo"
+    elif [ -t 0 ]; then echo "  sudo needs a password (Tailscale SSH never asks for one). Set a temporary one; the person changes it with passwd:"; passwd "$u" || need "no password set; sudo will not work until: sudo passwd $u"
+    else need "set a password for sudo: sudo passwd $u"; fi
+  else note "no sudo (add it later with hub add $email --sudo)"; fi
+  loginctl enable-linger "$u" 2>/dev/null && ok "services run with nobody logged in (linger)"
+  step "2. Orca server"
+  entry="$(hub_entry "$u")"
+  if [ -n "$entry" ]; then port="$(echo "$entry" | awk '{print $3}')"; else port="$(hub_next_port)"; fi
+  ok "port $port on $HUB_IP"
+  mkdir -p "$h/Applications/orca" "$h/.local/bin" "$h/.config/systemd/user" "$h/.config/orca"
+  chown "$u:$u" "$h/Applications" "$h/Applications/orca" "$h/.local" "$h/.local/bin" "$h/.config" "$h/.config/systemd" "$h/.config/systemd/user" "$h/.config/orca"
+  if [ -f "$h/Applications/orca/Orca.AppImage" ]; then ok "own copy of Orca"
+  else doing "copy Orca into the home"; install -m 0755 -o "$u" -g "$u" "$HUB_LIB/Orca.AppImage" "$h/Applications/orca/Orca.AppImage" || die "no Orca at $HUB_LIB (hub init)"; fi
+  ln -sfn "$h/Applications/orca/Orca.AppImage" "$h/.local/bin/orca-ide"; chown -h "$u:$u" "$h/.local/bin/orca-ide"
+  cat > "$h/.config/systemd/user/orca-serve.service" <<UNIT
+[Unit]
+Description=Orca server for $u (port $port; written by lobsters-cli hub add)
+StartLimitIntervalSec=900
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=$h/.local/bin/orca-ide serve --supervise --no-pairing --port $port --pairing-address $HUB_IP
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/bin:$h/.local/share/mise/shims:$h/.local/bin
+Environment=ORCA_USER_DATA_PATH=$h/.config/orca
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=90
+KillMode=process
+
+[Install]
+WantedBy=default.target
+UNIT
+  chown "$u:$u" "$h/.config/systemd/user/orca-serve.service"
+  cat > "$h/.local/bin/orca-pair" <<PAIR
+#!/bin/bash
+# Pair a phone or laptop with your Orca server on this hub (written by lobsters-cli hub add).
+systemctl --user stop orca-serve.service 2>/dev/null
+echo "Pairing mode on $HUB_IP:$port. Ctrl-C when paired, then:  systemctl --user start orca-serve"
+exec "\$HOME/.local/bin/orca-ide" serve --port $port --pairing-address $HUB_IP
+PAIR
+  chmod 0755 "$h/.local/bin/orca-pair"; chown "$u:$u" "$h/.local/bin/orca-pair"
+  if hub_user_systemctl "$u" daemon-reload >/dev/null 2>&1 && hub_user_systemctl "$u" enable orca-serve.service >/dev/null 2>&1; then ok "orca-serve.service enabled (starts once the person has paired)"
+  else
+    install -d -o "$u" -g "$u" "$h/.config/systemd/user/default.target.wants"
+    ln -sfn ../orca-serve.service "$h/.config/systemd/user/default.target.wants/orca-serve.service"; chown -h "$u:$u" "$h/.config/systemd/user/default.target.wants/orca-serve.service"
+    ok "orca-serve.service enabled (by link; the user manager was not up yet)"
+  fi
+  if hub_ufw_active; then
+    ufw status | grep -q "^$port/tcp on tailscale0" && ok "ufw: $port/tcp open on tailscale0" \
+      || { doing "ufw: open $port/tcp on tailscale0"; ufw allow in on tailscale0 to any port "$port" proto tcp comment "orca $u" >/dev/null || need "ufw rule failed"; }
+  fi
+  step "3. 1Password dev-readers token"
+  if hub_place_token "$u" "$h"; then ok "placed in the home; op run works there with 1Password locked"
+  else note "none stored yet: sudo lobsters-cli hub token dev-readers places it in every home"; fi
+  { grep -v "^$u " "$HUB_PEOPLE" 2>/dev/null; echo "$u $email $port $([ $sudo = 1 ] && echo yes || echo no) $(date -u +%F)"; } > "$HUB_PEOPLE.tmp" && mv -f "$HUB_PEOPLE.tmp" "$HUB_PEOPLE"; chmod 0600 "$HUB_PEOPLE"
+  step "Done"
+  echo "  $email: account $u, Orca on $HUB_IP:$port. Tell them:"
+  echo "    1. ssh $u@$(hostname)        (Tailscale SSH: their tailnet login is the key)"
+  echo "    2. lobsters-cli setup        (gh auth login as themselves when it asks; then claude, signed in as the company account)"
+  echo "    3. orca-pair                 (pair their phone or laptop, Ctrl-C, then systemctl --user start orca-serve)"
+  [ $sudo = 1 ] && echo "    4. passwd                    (their own sudo password; tell them the temporary one out of band)"
+  echo "  Their devices on the tailnet: sudo lobsters-cli hub tailnet $email --approve"
+}
+
+hub_remove() {
+  hub_root remove; hub_load
+  local email="" keep=0 u h port entry yn
+  while [ $# -gt 0 ]; do case "$1" in --keep-home) keep=1; shift ;; -*) die "hub remove: unknown option $1" ;; *) email="$1"; shift ;; esac; done
+  [ -n "$email" ] || die "hub remove EMAIL [--keep-home]"
+  u="$(hub_user_of "$email")"; entry="$(hub_entry "$u")"; [ -n "$entry" ] || die "$email is not on this hub (hub list)"
+  port="$(echo "$entry" | awk '{print $3}')"; h="$(getent passwd "$u" | cut -d: -f6)"
+  printf 'Remove %s (account %s, Orca port %s)%s? [y/N] ' "$email" "$u" "$port" "$([ $keep = 1 ] && echo ', keeping the home' || echo ' and its home directory')"
+  read -r yn </dev/tty; case "$yn" in y|Y|yes) ;; *) echo "Nothing removed."; return 1 ;; esac
+  hub_user_systemctl "$u" disable --now orca-serve.service >/dev/null 2>&1 || true
+  loginctl disable-linger "$u" 2>/dev/null || true
+  loginctl terminate-user "$u" 2>/dev/null || true
+  hub_ufw_active && ufw delete allow in on tailscale0 to any port "$port" proto tcp >/dev/null 2>&1 || true
+  if [ $keep = 1 ]; then userdel "$u" 2>/dev/null || need "userdel $u failed (still logged in?)"; else userdel -r "$u" 2>/dev/null || need "userdel -r $u failed (still logged in?)"; fi
+  grep -v "^$u " "$HUB_PEOPLE" > "$HUB_PEOPLE.tmp"; mv -f "$HUB_PEOPLE.tmp" "$HUB_PEOPLE"; chmod 0600 "$HUB_PEOPLE"
+  echo "removed $u from this hub. Their tailnet access ends when they leave the Workspace; to end it sooner, remove them in the Tailscale console."
+}
+
+hub_list() {
+  hub_root list; hub_load
+  local u e port s d state
+  [ -s "$HUB_PEOPLE" ] || { echo "nobody on this hub yet: sudo lobsters-cli hub add EMAIL"; return; }
+  printf '%-12s %-32s %-6s %-5s %-10s %s\n' ACCOUNT LOGIN ORCA SUDO ADDED SERVER
+  while read -r u e port s d; do
+    [ -n "$u" ] || continue
+    state="$(hub_user_systemctl "$u" is-active orca-serve.service 2>/dev/null || echo "-")"
+    printf '%-12s %-32s %-6s %-5s %-10s %s\n' "$u" "$e" "$port" "$s" "$d" "$state"
+  done < "$HUB_PEOPLE"
+  echo "Orca address for everyone: $HUB_IP; policy rule: users [\"localpart:*@$HUB_DOMAIN\"]"
+}
+
+hub_check() {
+  hub_root check; hub_load; MODE=check
+  local u e port s d h paired
+  lobster_banner "v$(installed_version)" "hub check: nothing changes"
+  step "Hub"
+  [ -f "$HUB_LIB/Orca.AppImage" ] && ok "Orca AppImage at $HUB_LIB" || need "no Orca AppImage: hub init --orca PATH"
+  [ -s "$HUB_DIR/dev-readers" ] && ok "dev-readers token stored" || need "no dev-readers token: hub token dev-readers"
+  [ -s "$HUB_DIR/tailscale" ] && ok "Tailscale OAuth client stored" || note "no Tailscale OAuth client (hub tailnet needs one: hub token tailscale)"
+  [ "$(tailscale debug prefs 2>/dev/null | jq -r '.RunSSH // false')" = true ] && ok "Tailscale SSH on" || need "Tailscale SSH is off: tailscale set --ssh"
+  [ -f "$MANAGED" ] && ok "team policy on" || need "team policy missing: hub init"
+  while read -r u e port s d; do
+    [ -n "$u" ] || continue
+    step "$e ($u)"
+    id "$u" >/dev/null 2>&1 || { need "no account; hub add $e"; continue; }
+    h="$(getent passwd "$u" | cut -d: -f6)"
+    [ -f "/var/lib/systemd/linger/$u" ] && ok "linger" || need "no linger: loginctl enable-linger $u"
+    if [ "$s" = yes ]; then id -nG "$u" | tr ' ' '\n' | grep -qx wheel && ok "sudo" || need "not in wheel: hub add $e --sudo"; fi
+    [ -f "$h/.config/systemd/user/orca-serve.service" ] && ok "orca-serve unit" || need "no orca-serve unit: hub add $e"
+    paired="$(jq 'if type == "array" then length else 0 end' "$h/.config/orca/orca-devices.json" 2>/dev/null || echo 0)"
+    case "$(hub_user_systemctl "$u" is-active orca-serve.service 2>/dev/null)" in
+      active) ss -ltnH "sport = :$port" 2>/dev/null | grep -q . && ok "Orca serving on $port ($paired device(s))" || need "orca-serve active but nothing listens on $port" ;;
+      *) [ "${paired:-0}" -gt 0 ] && need "Orca server not running ($paired paired): systemctl --user start orca-serve, as $u" || note "Orca not paired yet: orca-pair, as $u" ;;
+    esac
+    if hub_ufw_active; then ufw status | grep -q "^$port/tcp on tailscale0" && ok "ufw $port/tcp on tailscale0" || need "ufw: port $port not open: hub add $e"; fi
+    [ -s "$h/.config/cloud-lobsters/op-token" ] && ok "dev-readers token in the home" || note "no token in the home (hub token dev-readers)"
+    [ -s "$h/.config/gh/hosts.yml" ] && ok "gh signed in" || need "gh not signed in: gh auth login, as $u"
+    [ -n "$(runuser -u "$u" -- git config --global user.email 2>/dev/null)" ] && ok "git identity: $(runuser -u "$u" -- git config --global user.email)" || need "no git identity: lobsters-cli setup, as $u"
+    [ -s "$h/.claude/.credentials.json" ] && ok "Claude Code signed in" || need "Claude Code not signed in: claude, as $u"
+    [ -f "$h/.claude/CLAUDE.md" ] && grep -qxF "$IMPORT" "$h/.claude/CLAUDE.md" && ok "team rules imported" || need "lobsters-cli setup not run, as $u"
+  done < "$HUB_PEOPLE"
+  step "Done"; echo "  $todo thing(s) to do."
+}
+
+# Tailscale API with the stored OAuth client (scopes users:read and devices:core).
+hub_ts_token() {
+  [ -s "$HUB_DIR/tailscale" ] || die "no Tailscale OAuth client stored: sudo lobsters-cli hub token tailscale (scopes users:read, devices:core)"
+  local id secret t
+  { IFS= read -r id; IFS= read -r secret; } < "$HUB_DIR/tailscale"
+  t="$(curl -fsS -d "client_id=$id" -d "client_secret=$secret" https://api.tailscale.com/api/v2/oauth/token 2>/dev/null | jq -r '.access_token // empty')"
+  unset secret
+  [ -n "$t" ] || die "Tailscale did not issue a token for the stored OAuth client"
+  echo "$t"
+}
+hub_tailnet() {
+  hub_root tailnet; hub_load
+  local email="" approve=0 tok users devs n id name
+  while [ $# -gt 0 ]; do case "$1" in --approve) approve=1; shift ;; -*) die "hub tailnet: unknown option $1" ;; *) email="$1"; shift ;; esac; done
+  [ -n "$email" ] || die "hub tailnet EMAIL [--approve]"
+  email="$(echo "$email" | tr 'A-Z' 'a-z')"
+  tok="$(hub_ts_token)"
+  users="$(curl -fsS -H "Authorization: Bearer $tok" "https://api.tailscale.com/api/v2/tailnet/-/users" 2>/dev/null)" || die "could not list tailnet users (scope users:read?)"
+  if echo "$users" | jq -e --arg e "$email" '.users[] | select((.loginName | ascii_downcase) == $e)' >/dev/null; then
+    ok "$email is on the tailnet ($(echo "$users" | jq -r --arg e "$email" '.users[] | select((.loginName | ascii_downcase) == $e) | "\(.role), \(.status)"'))"
+  else need "$email has not signed in to Tailscale yet (Workspace account; no invite needed)"; return 1; fi
+  devs="$(curl -fsS -H "Authorization: Bearer $tok" "https://api.tailscale.com/api/v2/tailnet/-/devices" 2>/dev/null)" || die "could not list devices (scope devices:core?)"
+  n=0
+  while IFS=$'\t' read -r id name auth; do
+    [ -n "$id" ] || continue
+    if [ "$auth" = true ]; then ok "$name (approved)"; continue; fi
+    if [ $approve = 1 ]; then
+      if curl -fsS -X POST -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' -d '{"authorized": true}' "https://api.tailscale.com/api/v2/device/$id/authorize" >/dev/null 2>&1; then ok "$name approved"; n=$((n+1))
+      else need "$name: approval failed"; fi
+    else need "$name is waiting for approval (--approve)"; fi
+  done < <(echo "$devs" | jq -r --arg e "$email" '.devices[] | select((.user | ascii_downcase) == $e) | [.id, .name, (.authorized|tostring)] | @tsv')
+  unset tok
+  [ $approve = 1 ] && echo "$n device(s) approved."; return 0
+}
+
+cmd_hub() {
+  case "${1:-help}" in
+    init)    shift; hub_init "$@" ;;
+    token)   shift; hub_token "$@" ;;
+    add)     shift; hub_add "$@" ;;
+    remove)  shift; hub_remove "$@" ;;
+    list)    hub_list ;;
+    check)   hub_check ;;
+    tailnet) shift; hub_tailnet "$@" ;;
+    help|-h|--help) sed -n '/^# ---- hub: the shared agent box/,/^HUB_PEOPLE=/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//; s/^---- //; s/ -*$//' ;;
+    *) die "hub: unknown command $1 (lobsters-cli hub help)" ;;
+  esac
+}
+
 # ---- main ----------------------------------------------------------------------------
 case "${1:-}" in
   setup)         MODE=install; run_setup ;;
@@ -829,8 +1197,9 @@ case "${1:-}" in
   status)        cmd_status ;;
   statusline)    cmd_statusline ;;
   token)         cmd_token "${2:-}" "${3:-}" ;;
+  hub)           shift; cmd_hub "$@" ;;
   install-files) cmd_install_files "${2:?install-files needs a source directory}" ;;
   version|--version|-v) installed_version; echo ;;
   *) lobster_banner "v$(installed_version)" "$TAGLINE"
-     sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+     sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

@@ -26,7 +26,30 @@ Before you start: the 1Password app signed in with **Integrate with 1Password CL
 | `lobsters-cli status` | refresh and print `~/.local/state/cloud-lobsters/status.json` |
 | `lobsters-cli remove` | take the team setup out again |
 | `lobsters-cli token sync` | engineers only: copy the team's shared `dev-readers` 1Password service-account token from the Engineering vault into your OS keychain (`setup` does this too when it can, and otherwise just says so). The vault is the only way in; `--shared` replaces a different token already in the keychain |
+| `lobsters-cli hub …` | admins, on the shared agent box: one Unix account per person, see [Shared agent box](#shared-agent-box-the-hub) |
 | `lobsters-cli token check` | try every cloned repo's dev Environment, and then every dev Environment the 1Password app lists (cloned or not), with the keychain token; lists the ones an admin must add to `dev-readers` |
+
+## Shared agent box (the hub)
+
+One always-on Linux machine (the office Mac Pro, `lobster`, on the company tailnet) runs Claude Code and Orca for everyone. Commits, pushes and Orca sessions from it must carry the identity of the person using it, so **every person has their own Unix account there**, named after the local part of their login (`nemo@cloudlobsters.com` → `nemo`). Tailscale SSH does the mapping with one standing policy rule, so nobody holds a key and nothing changes in the policy when someone joins:
+
+```jsonc
+{"action": "check", "src": ["autogroup:member"], "dst": ["tag:server"], "users": ["localpart:*@cloudlobsters.com"]}
+```
+
+`check` asks for a browser re-authentication (the Workspace login) every 12 hours; with device approval on in the tailnet, a new laptop is useless until an admin approves it. That is the "approved machines only" gate; the CLI adds no login of its own.
+
+In each account: `gh` and git as the person, Claude Code signed in as the **company** Claude account (one subscription; the Unix user says who ran the session), an Orca server of their own on its own port (an Orca session runs as the account that serves it), and the shared `dev-readers` token in a file, since an ssh-only account has no keyring. The 1Password desktop app is not there (no graphical session to unlock it in), so MCP servers whose keys live in a person's Employee vault are added only after `op signin` as themselves.
+
+Admin, once on the box: `sudo lobsters-cli hub init --retire lobster` (marks it a hub, keeps a copy of Orca for new homes, installs the 1Password CLI and the team policy for every account, turns on Tailscale SSH, retires the shared account's Orca server). Then, from the admin's own laptop, so the token never touches a clipboard:
+
+```
+op read "op://Engineering/Service Account Auth Token: dev-readers/credential" | ssh lobster sudo lobsters-cli hub token dev-readers
+```
+
+(`hub init` lets wheel run `hub token` without a password; it only ever writes.) The same with `hub token tailscale` and an OAuth client (scopes `users:read`, `devices:core`) if you want `hub tailnet EMAIL --approve` to approve a person's pending devices from the box.
+
+Per person: `sudo lobsters-cli hub add name@cloudlobsters.com [--sudo]`. It creates the account (linger on, so their services run with nobody logged in), copies Orca in, writes their `orca-serve` user service with the next free port, opens that port on `tailscale0`, places the token, and prints the three things the person does: `ssh name@lobster`, `lobsters-cli setup` (installs Claude Code into the home, asks for `gh auth login` as themselves, sets their git identity from it, then says to run `claude` and sign in as the company account), and `orca-pair` (pair their phone or laptop, Ctrl-C, start the service). `hub list`, `hub check` and `hub remove EMAIL` do what they say. No invite is needed on the tailnet: a Workspace account signs in and is in.
 
 ## How it works
 

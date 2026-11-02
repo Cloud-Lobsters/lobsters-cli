@@ -192,7 +192,11 @@ grep -v '^#' "$signers" | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^(ssh-|ecdsa
 echo
 
 say "4. Install (asks for your password)"
-sudo bash "$tree/bin/lobsters-cli" install-files "$tree" </dev/tty
+if [ "$(cat /usr/local/share/lobsters-cli/VERSION 2>/dev/null)" = "$latest" ]; then
+  echo "  v$latest is already installed under /usr/local (a shared machine: someone did this already)"
+else
+  sudo bash "$tree/bin/lobsters-cli" install-files "$tree" </dev/tty
+fi
 
 say "5. Set up this machine"
 LOBSTERS_CLI_NO_BANNER=1 exec /usr/local/bin/lobsters-cli setup </dev/tty
