@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- GitHub sign-in in `setup` offers a fine-grained token limited to the Cloud-Lobsters org (the default on the hub) beside the web login, whose smallest grant is every repository you can see. Already signed in with the web login? `gh auth logout`, then `lobsters-cli setup`.
+
 ## 0.6.7 (2026-11-02)
 
 - `ssh lobster` uses the hub's Tailscale IP, not its MagicDNS name: NordLayer replaces the Mac's DNS and the name never resolved, so `ssh lobster` sat there doing nothing. An entry from an earlier setup is corrected.

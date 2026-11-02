@@ -292,10 +292,32 @@ setup_prereqs() {
   # on any browser, type the code). On a hub nothing opens a browser on the box itself.
   if gh auth status >/dev/null 2>&1; then ok "GitHub (gh) signed in"
   elif [ $MODE = install ] && [ -t 0 ]; then
-    doing "sign in to GitHub as yourself: type the code it shows at github.com/login/device"
-    if env ${HUB:+$([ $HUB = 1 ] && echo BROWSER=true)} gh auth login --web --git-protocol https --scopes user:email </dev/tty && gh auth status >/dev/null 2>&1; then
-      ok "GitHub (gh) signed in as $(gh api user --jq .login 2>/dev/null)"
-    else die "GitHub sign-in did not complete; run setup again"; fi
+    # Two ways in. The web login is the GitHub CLI OAuth app: its smallest grant is repo +
+    # read:org, i.e. every repository the person can see, on every org. On a shared machine
+    # the fine-grained token is the right one: it can be limited to the Cloud-Lobsters org.
+    local choice dflt tok
+    dflt="$([ $HUB = 1 ] && echo t || echo w)"
+    echo "    GitHub sign-in, as yourself:"
+    echo "      [w] web login (GitHub CLI app: access to every repo you can see, on every org)"
+    echo "      [t] fine-grained token limited to Cloud-Lobsters$([ $HUB = 1 ] && echo ' (recommended on this shared machine)')"
+    echo "          make one at github.com/settings/personal-access-tokens/new: Resource owner Cloud-Lobsters,"
+    echo "          all repositories; Contents and Pull requests read+write, Workflows read+write, Metadata read;"
+    echo "          Account permissions: Email addresses read. Expiry as the org policy allows."
+    printf '    web or token? [%s] ' "$dflt"; IFS= read -r choice </dev/tty; choice="${choice:-$dflt}"
+    case "$choice" in
+      t|T)
+        printf '    paste the token (not shown): '; IFS= read -rs tok </dev/tty; echo
+        if printf '%s' "$tok" | gh auth login --with-token --git-protocol https 2>&1 | sed 's/^/    /' && gh auth status >/dev/null 2>&1; then
+          gh auth setup-git >/dev/null 2>&1
+          ok "GitHub (gh) signed in as $(gh api user --jq .login 2>/dev/null) with a fine-grained token"
+        else unset tok; die "GitHub did not accept that token; run setup again"; fi
+        unset tok ;;
+      *)
+        doing "web login: type the code it shows at github.com/login/device"
+        if env ${HUB:+$([ $HUB = 1 ] && echo BROWSER=true)} gh auth login --web --git-protocol https --scopes user:email </dev/tty && gh auth status >/dev/null 2>&1; then
+          ok "GitHub (gh) signed in as $(gh api user --jq .login 2>/dev/null)"
+        else die "GitHub sign-in did not complete; run setup again"; fi ;;
+    esac
   elif [ $HUB = 1 ] && [ $MODE = check ]; then need "GitHub: not signed in (setup signs you in)"; return
   else die "sign in to GitHub first: gh auth login"; fi
   if git config --global --get-all credential.https://github.com.helper 2>/dev/null | grep -q 'gh auth'; then ok "git uses your gh login"
