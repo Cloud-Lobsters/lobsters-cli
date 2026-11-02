@@ -44,7 +44,7 @@ In each account: `gh` and git as the person, Claude Code signed in as the **comp
 Admin, once on the box: `sudo lobsters-cli hub init --retire lobster` (marks it a hub, keeps a copy of Orca for new homes, installs the 1Password CLI and the team policy for every account, turns on Tailscale SSH, retires the shared account's Orca server). Then, from the admin's own laptop, so the token never touches a clipboard:
 
 ```
-op read "op://Engineering/Service Account Auth Token: dev-readers/credential" | ssh lobster sudo lobsters-cli hub token dev-readers
+op item get "Service Account Auth Token: dev-readers" --vault Engineering --fields label=credential --reveal | ssh lobster sudo lobsters-cli hub token dev-readers
 ```
 
 (`hub init` lets wheel run `hub token` without a password; it only ever writes.) The same with `hub token tailscale` and an OAuth client (scopes `users:read`, `devices:core`) if you want `hub tailnet EMAIL --approve` to approve a person's pending devices from the box.

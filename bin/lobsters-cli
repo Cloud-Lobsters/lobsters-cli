@@ -958,7 +958,7 @@ hub_init() {
   ok "$HUB_CONF written; setup now behaves as on a hub for every account"
   step "Done"
   echo "  Next, from an admin's laptop (the token never touches a clipboard):"
-  echo "    op read 'op://$TOKEN_VAULT/$TOKEN_ITEM/credential' | ssh $(hostname) sudo lobsters-cli hub token dev-readers"
+  echo "    op item get '$TOKEN_ITEM' --vault $TOKEN_VAULT --fields label=credential --reveal | ssh $(hostname) sudo lobsters-cli hub token dev-readers"
   echo "  then, for each person:  sudo lobsters-cli hub add name@$domain [--sudo]"
 }
 
