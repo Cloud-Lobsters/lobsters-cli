@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- A new hub account runs `lobsters-cli setup` by itself at its first logins, until it has completed once; the person only answers the GitHub prompt.
+
 - `hub init` installs `gh` and `jq` for every account on the box (Omarchy ships `gh` as a per-user stub in the first account only).
 
 ## 0.6.2 (2026-11-02)

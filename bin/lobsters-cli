@@ -1167,6 +1167,12 @@ PAIR
     ufw status | grep -q "^$port/tcp on tailscale0" && ok "ufw: $port/tcp open on tailscale0" \
       || { doing "ufw: open $port/tcp on tailscale0"; ufw allow in on tailscale0 to any port "$port" proto tcp comment "orca $u" >/dev/null || need "ufw rule failed"; }
   fi
+  # First logins run the team setup by themselves, until it has completed once (status.json
+  # is written at the end of a full setup). The person only answers the GitHub prompt.
+  if ! grep -q 'lobsters-cli hub: first logins' "$h/.bashrc" 2>/dev/null; then
+    printf '\n# lobsters-cli hub: first logins run the team setup until it has completed once\n[[ $- == *i* ]] && [ ! -s ~/.local/state/cloud-lobsters/status.json ] && command -v lobsters-cli >/dev/null && lobsters-cli setup\n' >> "$h/.bashrc"
+    chown "$u:$u" "$h/.bashrc"; ok "first login runs lobsters-cli setup by itself"
+  else ok "first login runs lobsters-cli setup by itself"; fi
   step "3. 1Password dev-readers token"
   if hub_place_token "$u" "$h"; then ok "placed in the home; op run works there with 1Password locked"
   else note "none stored yet: sudo lobsters-cli hub token dev-readers places it in every home"; fi
@@ -1174,7 +1180,7 @@ PAIR
   step "Done"
   echo "  $email: account $u, Orca on $HUB_IP:$port. Tell them:"
   echo "    1. ssh $u@$(hostname)        (Tailscale SSH: their tailnet login is the key)"
-  echo "    2. lobsters-cli setup        (gh auth login as themselves when it asks; then claude, signed in as the company account)"
+  echo "    2. setup runs by itself      (gh auth login as themselves when it asks; then claude, signed in as the company account)"
   echo "    3. orca-pair                 (pair their phone or laptop, Ctrl-C, then systemctl --user start orca-serve)"
   [ $sudo = 1 ] && echo "    4. passwd                    (their own sudo password; tell them the temporary one out of band)"
   echo "  Their devices on the tailnet: sudo lobsters-cli hub tailnet $email --approve"
