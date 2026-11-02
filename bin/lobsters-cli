@@ -552,6 +552,11 @@ EOF
 # On a hub, the part of a person's account that carries their identity. Runs as the person.
 hub_setup_person() {
   local name email login id unit="$HOME/.config/systemd/user/orca-serve.service" paired
+  . "$HUB_CONF"
+  if [ -n "${HUB_RETIRED:-}" ] && [ "$USER" = "$HUB_RETIRED" ]; then
+    note "$USER is the shared desktop account, not a person: no Orca server, no identity here. People use their own accounts (lobsters-cli hub list)"
+    return
+  fi
   # Commits from this account are the whole point: name and email from the GitHub login.
   if [ -n "$(git config --global user.email 2>/dev/null)" ] && [ -n "$(git config --global user.name 2>/dev/null)" ]; then
     ok "git commits as $(git config --global user.name) <$(git config --global user.email)>"
@@ -916,6 +921,7 @@ hub_init() {
   while [ $# -gt 0 ]; do case "$1" in
     --orca) orca="${2:?}"; shift 2 ;; --retire) retire="${2:?}"; shift 2 ;; --domain) domain="${2:?}"; shift 2 ;;
     *) die "hub init: unknown option $1" ;; esac; done
+  [ -f "$HUB_CONF" ] && . "$HUB_CONF"
   lobster_banner "v$(installed_version)" "this machine becomes the shared agent box"
   step "1. This machine"
   [ $OS = linux ] || die "a hub is a Linux box"
@@ -953,7 +959,14 @@ hub_init() {
   if [ -n "$retire" ]; then
     step "4. Retire the shared account's Orca server ($retire)"
     id "$retire" >/dev/null 2>&1 || die "no account $retire"
-    hub_user_systemctl "$retire" disable --now orca-serve.service >/dev/null 2>&1 && ok "orca-serve.service off for $retire" || note "$retire had no orca-serve.service"
+    local rh; rh="$(getent passwd "$retire" | cut -d: -f6)"
+    if [ -f "$rh/.config/systemd/user/orca-serve.service" ]; then
+      doing "stop and remove $retire's orca-serve.service (Orca ignores SIGTERM; this can take 90 s)"
+      hub_user_systemctl "$retire" disable --now orca-serve.service >/dev/null 2>&1 || true
+      mv -f "$rh/.config/systemd/user/orca-serve.service" "$rh/.config/systemd/user/orca-serve.service.retired"
+      hub_user_systemctl "$retire" daemon-reload >/dev/null 2>&1 || true
+      ok "orca-serve.service off for $retire (kept as orca-serve.service.retired)"
+    else note "$retire has no orca-serve.service"; fi
     # The AppImage runs as /tmp/.mount_…/orca-ide …/cli/index.js serve, with an orcad-server child.
     pkill -u "$retire" -f 'orca-ide.* serve|orcad-server|daemon-entry\.js' 2>/dev/null && ok "stopped the Orca processes of $retire" || true
     note "the devices paired to it pair again, each with its owner's own server"
@@ -961,7 +974,8 @@ hub_init() {
   step "5. Hub config"
   install -d -m 0700 "$HUB_DIR"; install -d -m 0755 "$(dirname "$HUB_CONF")"
   { echo "# written by lobsters-cli hub init on $(date -u +%F); edit by hand if the IP or domain changes"
-    echo "HUB_IP=$ip"; echo "HUB_DOMAIN=$domain"; echo "HUB_PORT_FROM=${HUB_PORT_FROM:-6768}"; echo "HUB_SHELL=${HUB_SHELL:-/usr/bin/bash}"; } > "$HUB_CONF"
+    echo "HUB_IP=$ip"; echo "HUB_DOMAIN=$domain"; echo "HUB_PORT_FROM=${HUB_PORT_FROM:-6768}"; echo "HUB_SHELL=${HUB_SHELL:-/usr/bin/bash}"
+    echo "HUB_RETIRED=${retire:-${HUB_RETIRED:-}}"; } > "$HUB_CONF"
   chmod 0644 "$HUB_CONF"; touch "$HUB_PEOPLE"; chmod 0600 "$HUB_PEOPLE"
   ok "$HUB_CONF written; setup now behaves as on a hub for every account"
   step "Done"
