@@ -918,7 +918,7 @@ cmd_install_files() {
 }
 
 cmd_upgrade() {
-  local want="${1:-}" inst lat tmp tree asset base
+  local want="${1:-}" force="${2:-}" inst lat tmp tree asset base
   inst="$(installed_version)"
   lat="$(latest_version --fresh)"; [ -n "$lat" ] || die "could not read releases of $TOOLING_REPO (offline?)"
   if [ -z "$want" ]; then
@@ -927,6 +927,10 @@ cmd_upgrade() {
       lobster_banner "v$inst" "up to date"
       echo "lobsters-cli $inst is current."; cmd_status >/dev/null; return 0
     fi
+  elif [ "$want" = "$inst" ]; then
+    lobster_banner "v$inst" "up to date"
+    echo "lobsters-cli $inst is already installed. (lobsters-cli setup applies it again; lobsters-cli upgrade $inst --force reinstalls.)"
+    [ "$force" = --force ] || { cmd_status >/dev/null; return 0; }
   elif version_lt "$want" "$inst"; then
     echo "Note: $want is older than the installed $inst. Installing it anyway because you named it." >&2
   fi
@@ -1338,7 +1342,7 @@ case "${1:-}" in
   setup)         MODE=install; run_setup ;;
   check)         MODE=check;   run_setup ;;
   remove)        MODE=remove;  run_setup ;;
-  upgrade)       cmd_upgrade "${2:-}" ;;
+  upgrade)       cmd_upgrade "${2:-}" "${3:-}" ;;
   status)        cmd_status ;;
   statusline)    cmd_statusline ;;
   token)         cmd_token "${2:-}" "${3:-}" ;;

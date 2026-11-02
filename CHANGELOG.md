@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- `lobsters-cli upgrade X.Y.Z` for the version already installed says so and stops, instead of fetching it and asking to install it again (`--force` reinstalls).
+
 - `setup` signs you in to GitHub itself when you are not (device code to type at github.com/login/device), instead of stopping and telling you the command.
 
 ## 0.6.5 (2026-11-02)
