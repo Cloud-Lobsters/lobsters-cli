@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+## 0.6.9 (2026-11-02)
+
 - The GitHub sign-in choice in `setup` is a cursor menu (arrow keys, Enter), not a letter to type.
 
 ## 0.6.8 (2026-11-02)
