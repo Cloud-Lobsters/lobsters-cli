@@ -951,7 +951,8 @@ hub_init() {
     step "4. Retire the shared account's Orca server ($retire)"
     id "$retire" >/dev/null 2>&1 || die "no account $retire"
     hub_user_systemctl "$retire" disable --now orca-serve.service >/dev/null 2>&1 && ok "orca-serve.service off for $retire" || note "$retire had no orca-serve.service"
-    pkill -u "$retire" -f 'orca-ide serve' 2>/dev/null && ok "stopped a foreground orca-ide serve of $retire" || true
+    # The AppImage runs as /tmp/.mount_…/orca-ide …/cli/index.js serve, with an orcad-server child.
+    pkill -u "$retire" -f 'orca-ide.* serve|orcad-server|daemon-entry\.js' 2>/dev/null && ok "stopped the Orca processes of $retire" || true
     note "the devices paired to it pair again, each with its owner's own server"
   fi
   step "5. Hub config"
@@ -1022,6 +1023,9 @@ hub_add() {
   step "2. Orca server"
   entry="$(hub_entry "$u")"
   if [ -n "$entry" ]; then port="$(echo "$entry" | awk '{print $3}')"; else port="$(hub_next_port)"; fi
+  if ss -ltnH "sport = :$port" 2>/dev/null | grep -q . && ! hub_user_systemctl "$u" is-active orca-serve.service >/dev/null 2>&1; then
+    need "port $port is taken by something that is not $u's Orca server (ss -ltnp 'sport = :$port'); stop it, or it will fight that server"
+  fi
   ok "port $port on $HUB_IP"
   mkdir -p "$h/Applications/orca" "$h/.local/bin" "$h/.config/systemd/user" "$h/.config/orca"
   chown "$u:$u" "$h/Applications" "$h/Applications/orca" "$h/.local" "$h/.local/bin" "$h/.config" "$h/.config/systemd" "$h/.config/systemd/user" "$h/.config/orca"
