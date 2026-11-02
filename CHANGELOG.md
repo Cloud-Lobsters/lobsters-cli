@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- `hub init` installs `gh` and `jq` for every account on the box (Omarchy ships `gh` as a per-user stub in the first account only).
+
 ## 0.6.2 (2026-11-02)
 
 - `setup` puts your machine on the company tailnet: installs Tailscale if it is missing, signs you in with your Workspace account (or says the device is waiting for an admin's approval), and adds `ssh lobster`, which lands in your own account on the hub.

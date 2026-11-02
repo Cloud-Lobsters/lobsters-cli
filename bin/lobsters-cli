@@ -285,7 +285,7 @@ setup_prereqs() {
     else tail -5 "$inst.log" | sed 's/^/    /'; rm -f "$inst" "$inst.log"; die "Claude Code did not install: curl -fsSL https://claude.ai/install.sh | bash"; fi
   elif [ $HUB = 1 ] && [ $MODE = check ]; then need "Claude Code (setup installs it into this home)"
   else die "Claude Code is missing: curl -fsSL https://claude.ai/install.sh | bash"; fi
-  command -v gh >/dev/null     && ok "GitHub CLI" || die "gh is missing (install.sh installs it)"
+  command -v gh >/dev/null     && ok "GitHub CLI" || die "gh is missing ($([ $HUB = 1 ] && echo 'an admin runs: sudo lobsters-cli hub init' || echo 'install.sh installs it'))"
   [ $MODE = remove ] && return
   # A fresh hub account has signed in to nothing yet; `check` there reports instead of stopping.
   if gh auth status >/dev/null 2>&1; then ok "GitHub (gh) signed in"
@@ -1004,6 +1004,14 @@ hub_init() {
   if cmp -s "$orca" "$HUB_LIB/Orca.AppImage"; then ok "$HUB_LIB/Orca.AppImage"
   else doing "keep a copy of $orca at $HUB_LIB"; install -m 0755 "$orca" "$HUB_LIB/Orca.AppImage"; fi
   step "3. Tools and policy for every account"
+  # gh and jq for everyone: Omarchy's gh is a per-user mise stub in the first account only.
+  local t
+  for t in gh:github-cli jq:jq; do
+    if command -v "${t%%:*}" >/dev/null && [ "$(command -v "${t%%:*}")" != "/home/"* ]; then ok "${t%%:*}"
+    elif command -v pacman >/dev/null; then doing "install ${t#*:} for every account"; pacman -S --needed --noconfirm "${t#*:}" >/dev/null 2>&1 && ok "${t%%:*}" || need "${t#*:} did not install (pacman -S ${t#*:})"
+    elif command -v apt-get >/dev/null; then doing "install ${t#*:} for every account"; apt-get install -y "${t#*:}" >/dev/null 2>&1 && ok "${t%%:*}" || need "${t#*:} did not install (apt install ${t#*:})"
+    else need "install ${t%%:*} system-wide"; fi
+  done
   if command -v op >/dev/null; then ok "1Password CLI $(op --version 2>/dev/null)"
   elif command -v pacman >/dev/null; then doing "install the 1Password CLI"; pacman -S --needed --noconfirm 1password-cli >/dev/null 2>&1 && ok "1Password CLI" || need "1password-cli did not install (pacman -S 1password-cli)"
   else need "install the 1Password CLI (op) 2.41 or later: developer.1password.com/docs/cli"; fi
