@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- `orca-pair` counts a device as paired only once it has connected (Orca writes the record when it prints the link), and drops records that never connected when it ends. The paired-device counts in `setup` and `hub check` do the same.
+
 - `lobsters-cli upgrade X.Y.Z` for the version already installed says so and stops, instead of fetching it and asking to install it again (`--force` reinstalls).
 
 - `setup` signs you in to GitHub itself when you are not (device code to type at github.com/login/device), instead of stopping and telling you the command.

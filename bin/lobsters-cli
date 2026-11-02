@@ -582,7 +582,7 @@ hub_setup_person() {
   if [ ! -f "$unit" ]; then need "no Orca server in this account: an admin runs sudo lobsters-cli hub add $USER@… again"; return; fi
   if systemctl --user is-enabled orca-serve.service >/dev/null 2>&1; then ok "Orca server unit enabled"
   elif act "enable your Orca server"; then systemctl --user enable orca-serve.service >/dev/null 2>&1 || need "could not enable orca-serve"; fi
-  paired="$(jq 'if type == "array" then length else 0 end' "$HOME/.config/orca/orca-devices.json" 2>/dev/null || echo 0)"
+  paired="$(jq 'if type == "array" then map(select(.lastSeenAt > 0)) | length else 0 end' "$HOME/.config/orca/orca-devices.json" 2>/dev/null || echo 0)"
   if [ "${paired:-0}" -gt 0 ]; then
     if systemctl --user is-active orca-serve.service >/dev/null 2>&1; then ok "Orca server running ($paired device(s) paired)"
     elif act "start your Orca server ($paired device(s) paired)"; then systemctl --user start orca-serve.service || need "orca-serve did not start: journalctl --user -u orca-serve"; fi
@@ -1173,25 +1173,29 @@ UNIT
 # Runs Orca in pairing mode, waits for the device to pair, then starts your real server.
 set -u
 dev="\$HOME/.config/orca/orca-devices.json"
-count() { jq 'if type == "array" then length else 0 end' "\$dev" 2>/dev/null || echo 0; }
+# Orca writes the device record when it prints the link; it has connected once lastSeenAt > 0.
+count() { jq 'if type == "array" then map(select(.lastSeenAt > 0)) | length else 0 end' "\$dev" 2>/dev/null || echo 0; }
 stop_pairing() { kill -TERM -- -\$pg 2>/dev/null; sleep 3; kill -KILL -- -\$pg 2>/dev/null; wait 2>/dev/null; }
+# A record that never connected is a live token for nothing: drop the ones made during this run.
+drop_unused() { [ -f "\$dev" ] && jq --argjson t "\$t0" 'if type == "array" then map(select(.lastSeenAt > 0 or .pairedAt < \$t)) else . end' "\$dev" > "\$dev.tmp" 2>/dev/null && mv -f "\$dev.tmp" "\$dev"; }
+t0=\$(date +%s%3N)
 before=\$(count)
 systemctl --user stop orca-serve.service 2>/dev/null
 echo "Pairing mode on $HUB_IP:$port. Open the link below (or scan the code) on the phone or laptop."
 echo
 setsid "\$HOME/.local/bin/orca-ide" serve --port $port --pairing-address $HUB_IP &
 pg=\$!
-trap 'echo; echo "Stopped. Your server starts again."; stop_pairing; systemctl --user start orca-serve.service; exit 130' INT TERM
+trap 'echo; echo "Stopped. Your server starts again."; stop_pairing; drop_unused; systemctl --user start orca-serve.service; exit 130' INT TERM
 while kill -0 "\$pg" 2>/dev/null; do
   sleep 2
   if [ "\$(count)" -gt "\$before" ]; then
     echo; echo "Paired. Starting your Orca server on $HUB_IP:$port."
-    trap - INT TERM; stop_pairing
+    trap - INT TERM; stop_pairing; drop_unused
     systemctl --user start orca-serve.service && echo "Done. Run orca-pair again for another device." || echo "orca-serve did not start: journalctl --user -u orca-serve"
     exit 0
   fi
 done
-echo "Pairing mode ended without a new device. Your server starts again."; systemctl --user start orca-serve.service
+drop_unused; echo "Pairing mode ended without a new device. Your server starts again."; systemctl --user start orca-serve.service
 PAIR
   chmod 0755 "$h/.local/bin/orca-pair"; chown "$u:$u" "$h/.local/bin/orca-pair"
   if hub_user_systemctl "$u" daemon-reload >/dev/null 2>&1 && hub_user_systemctl "$u" enable orca-serve.service >/dev/null 2>&1; then ok "orca-serve.service enabled (runs with the account's session manager; orca-pair stops it to pair)"
@@ -1273,7 +1277,7 @@ hub_check() {
     [ -f "/var/lib/systemd/linger/$u" ] && ok "linger" || need "no linger: loginctl enable-linger $u"
     if [ "$s" = yes ]; then [ -f "/etc/sudoers.d/lobsters-cli-hub-$u" ] && ok "sudo" || need "no sudoers entry: hub add $e --sudo"; fi
     [ -f "$h/.config/systemd/user/orca-serve.service" ] && ok "orca-serve unit" || need "no orca-serve unit: hub add $e"
-    paired="$(jq 'if type == "array" then length else 0 end' "$h/.config/orca/orca-devices.json" 2>/dev/null || echo 0)"
+    paired="$(jq 'if type == "array" then map(select(.lastSeenAt > 0)) | length else 0 end' "$h/.config/orca/orca-devices.json" 2>/dev/null || echo 0)"
     case "$(hub_user_systemctl "$u" is-active orca-serve.service 2>/dev/null)" in
       active) ss -ltnH "sport = :$port" 2>/dev/null | grep -q . && ok "Orca serving on $port ($paired device(s))" || need "orca-serve active but nothing listens on $port" ;;
       *) [ "${paired:-0}" -gt 0 ] && need "Orca server not running ($paired paired): systemctl --user start orca-serve, as $u" || note "Orca not paired yet: orca-pair, as $u" ;;
