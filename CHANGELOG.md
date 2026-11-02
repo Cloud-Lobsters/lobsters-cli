@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+## 0.6.0 (2026-11-02)
+
 - `lobsters-cli hub`: the shared agent box (the office Mac Pro "lobster"). `hub init` once, then `hub add name@cloudlobsters.com [--sudo]` gives a person their own Unix account, reached by Tailscale SSH under their own login, with their own Orca server on its own port and the shared dev-readers token in their home. `hub remove`, `hub list`, `hub check`, `hub tailnet EMAIL --approve` (approves their pending tailnet devices), `hub token` (secrets piped in from an admin's 1Password; never pasted).
 - `setup` on a hub installs Claude Code into the home, sets your git name and email from your GitHub login, keeps the dev-readers token in a file (an ssh-only account has no keyring), enables your Orca server, and says what is left: the Claude login, pairing with `orca-pair`.
 - The installer no longer asks for a password when the version it fetched is already under /usr/local, so a person without sudo on a shared machine can run the one-liner.
