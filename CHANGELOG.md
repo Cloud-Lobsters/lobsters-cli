@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+## 0.6.4 (2026-11-02)
+
 - On a Mac, `setup` installs the Tailscale app (`brew install --cask tailscale-app`), not Homebrew's `tailscale` cask, which is now the CLI-only build and does not work as a laptop client; a machine that got that cask has it replaced.
 
 ## 0.6.3 (2026-11-02)
