@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- `orca-pair` on the hub finishes the job: it waits for the phone or laptop to pair, then starts your Orca server. No Ctrl-C, no systemctl. Re-running `hub add` for an existing account gives it the new script.
+
 ## 0.6.4 (2026-11-02)
 
 - On a Mac, `setup` installs the Tailscale app (`brew install --cask tailscale-app`), not Homebrew's `tailscale` cask, which is now the CLI-only build and does not work as a laptop client; a machine that got that cask has it replaced.
