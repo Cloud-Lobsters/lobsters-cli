@@ -278,10 +278,14 @@ setup_prereqs() {
     doing "install Claude Code into this home"
     curl -fsSL https://claude.ai/install.sh 2>/dev/null | bash >/dev/null 2>&1
     command -v claude >/dev/null && ok "Claude Code" || die "Claude Code did not install: curl -fsSL https://claude.ai/install.sh | bash"
+  elif [ $HUB = 1 ] && [ $MODE = check ]; then need "Claude Code (setup installs it into this home)"
   else die "Claude Code is missing: curl -fsSL https://claude.ai/install.sh | bash"; fi
   command -v gh >/dev/null     && ok "GitHub CLI" || die "gh is missing (install.sh installs it)"
   [ $MODE = remove ] && return
-  gh auth status >/dev/null 2>&1 && ok "GitHub (gh) signed in" || die "sign in to GitHub first: gh auth login"
+  # A fresh hub account has signed in to nothing yet; `check` there reports instead of stopping.
+  if gh auth status >/dev/null 2>&1; then ok "GitHub (gh) signed in"
+  elif [ $HUB = 1 ] && [ $MODE = check ]; then need "GitHub: gh auth login (as yourself; setup asks for it)"; return
+  else die "sign in to GitHub first: gh auth login"; fi
   if git config --global --get-all credential.https://github.com.helper 2>/dev/null | grep -q 'gh auth'; then ok "git uses your gh login"
   elif act "let git use your gh login, so the private rules repo can be cloned"; then gh auth setup-git; fi
 }
@@ -1052,7 +1056,7 @@ echo "Pairing mode on $HUB_IP:$port. Ctrl-C when paired, then:  systemctl --user
 exec "\$HOME/.local/bin/orca-ide" serve --port $port --pairing-address $HUB_IP
 PAIR
   chmod 0755 "$h/.local/bin/orca-pair"; chown "$u:$u" "$h/.local/bin/orca-pair"
-  if hub_user_systemctl "$u" daemon-reload >/dev/null 2>&1 && hub_user_systemctl "$u" enable orca-serve.service >/dev/null 2>&1; then ok "orca-serve.service enabled (starts once the person has paired)"
+  if hub_user_systemctl "$u" daemon-reload >/dev/null 2>&1 && hub_user_systemctl "$u" enable orca-serve.service >/dev/null 2>&1; then ok "orca-serve.service enabled (runs with the account's session manager; orca-pair stops it to pair)"
   else
     install -d -o "$u" -g "$u" "$h/.config/systemd/user/default.target.wants"
     ln -sfn ../orca-serve.service "$h/.config/systemd/user/default.target.wants/orca-serve.service"; chown -h "$u:$u" "$h/.config/systemd/user/default.target.wants/orca-serve.service"

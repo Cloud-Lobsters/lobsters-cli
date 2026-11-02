@@ -8,6 +8,7 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- `lobsters-cli check` in a fresh hub account reports the missing Claude Code and GitHub login instead of stopping at the first one.
 - `hub init` prints the working command for piping the dev-readers token in (`op item get … --reveal`; a colon is invalid in an `op://` reference). README too.
 
 ## 0.6.0 (2026-11-02)
