@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- `hub init` prints the working command for piping the dev-readers token in (`op item get … --reveal`; a colon is invalid in an `op://` reference). README too.
+
 ## 0.6.0 (2026-11-02)
 
 - `lobsters-cli hub`: the shared agent box (the office Mac Pro "lobster"). `hub init` once, then `hub add name@cloudlobsters.com [--sudo]` gives a person their own Unix account, reached by Tailscale SSH under their own login, with their own Orca server on its own port and the shared dev-readers token in their home. `hub remove`, `hub list`, `hub check`, `hub tailnet EMAIL --approve` (approves their pending tailnet devices), `hub token` (secrets piped in from an admin's 1Password; never pasted).
