@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+## 0.6.1 (2026-11-02)
+
 - `hub add --sudo` writes a sudoers entry for the person (Omarchy's wheel group only carries a few fixed commands); `hub remove` takes it out.
 - `setup` on a hub runs the Claude Code installer from a downloaded file and shows its last lines when it fails.
 - `hub init --retire` also stops the AppImage's own Orca processes (they are not named `orca-ide serve`), and `hub add` warns when the port it picked is already taken.
