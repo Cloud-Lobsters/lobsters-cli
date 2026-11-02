@@ -784,7 +784,7 @@ setup_tailnet() {
   [ $OS = mac ] && ! pgrep -xq Tailscale && [ $MODE != check ] && open -a Tailscale 2>/dev/null && sleep 2
   st="$("$ts" status --json 2>/dev/null)" || st=""
   state="$(echo "$st" | jq -r '.BackendState // "Stopped"' 2>/dev/null)"
-  login="$(echo "$st" | jq -r '.Self.UserProfile.LoginName // empty' 2>/dev/null)"
+  login="$(echo "$st" | jq -r '.User[(.Self.UserID|tostring)].LoginName // .Self.UserProfile.LoginName // empty' 2>/dev/null)"
   case "$state" in
     Running)
       case "$login" in
