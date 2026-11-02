@@ -276,8 +276,11 @@ setup_prereqs() {
   if command -v claude >/dev/null; then ok "Claude Code"
   elif [ $HUB = 1 ] && [ $MODE = install ]; then
     doing "install Claude Code into this home"
-    curl -fsSL https://claude.ai/install.sh 2>/dev/null | bash >/dev/null 2>&1
-    command -v claude >/dev/null && ok "Claude Code" || die "Claude Code did not install: curl -fsSL https://claude.ai/install.sh | bash"
+    local inst; inst="$(mktemp)"
+    { curl -fsSL https://claude.ai/install.sh -o "$inst" && bash "$inst"; } > "$inst.log" 2>&1
+    hash -r
+    if command -v claude >/dev/null; then ok "Claude Code $(claude --version 2>/dev/null | head -1)"; rm -f "$inst" "$inst.log"
+    else tail -5 "$inst.log" | sed 's/^/    /'; rm -f "$inst" "$inst.log"; die "Claude Code did not install: curl -fsSL https://claude.ai/install.sh | bash"; fi
   elif [ $HUB = 1 ] && [ $MODE = check ]; then need "Claude Code (setup installs it into this home)"
   else die "Claude Code is missing: curl -fsSL https://claude.ai/install.sh | bash"; fi
   command -v gh >/dev/null     && ok "GitHub CLI" || die "gh is missing (install.sh installs it)"
@@ -1014,11 +1017,22 @@ hub_add() {
   if id "$u" >/dev/null 2>&1; then ok "exists"; else doing "create it"; useradd -m -s "$HUB_SHELL" $extra "$u" || die "useradd failed"; fi
   h="$(getent passwd "$u" | cut -d: -f6)"
   if [ $sudo = 1 ]; then
-    id -nG "$u" | tr ' ' '\n' | grep -qx wheel && ok "in wheel (sudo)" || { doing "add to wheel (sudo)"; usermod -aG wheel "$u"; }
+    # Omarchy's wheel group carries only a few fixed NOPASSWD commands; full sudo is per user.
+    id -nG "$u" | tr ' ' '\n' | grep -qx wheel || usermod -aG wheel "$u"
+    if [ -f "/etc/sudoers.d/lobsters-cli-hub-$u" ]; then ok "sudo (/etc/sudoers.d/lobsters-cli-hub-$u)"
+    else
+      doing "grant sudo (/etc/sudoers.d/lobsters-cli-hub-$u)"
+      echo "$u ALL=(ALL:ALL) ALL" > "/etc/sudoers.d/.lobsters-cli-hub-$u.tmp"
+      if visudo -cf "/etc/sudoers.d/.lobsters-cli-hub-$u.tmp" >/dev/null 2>&1; then install -m 0440 "/etc/sudoers.d/.lobsters-cli-hub-$u.tmp" "/etc/sudoers.d/lobsters-cli-hub-$u"; else need "sudoers line rejected by visudo"; fi
+      rm -f "/etc/sudoers.d/.lobsters-cli-hub-$u.tmp"
+    fi
     if [ "$(passwd -S "$u" 2>/dev/null | awk '{print $2}')" = P ]; then ok "has a password for sudo"
     elif [ -t 0 ]; then echo "  sudo needs a password (Tailscale SSH never asks for one). Set a temporary one; the person changes it with passwd:"; passwd "$u" || need "no password set; sudo will not work until: sudo passwd $u"
     else need "set a password for sudo: sudo passwd $u"; fi
-  else note "no sudo (add it later with hub add $email --sudo)"; fi
+  else
+    rm -f "/etc/sudoers.d/lobsters-cli-hub-$u"
+    note "no sudo (add it later with hub add $email --sudo)"
+  fi
   loginctl enable-linger "$u" 2>/dev/null && ok "services run with nobody logged in (linger)"
   step "2. Orca server"
   entry="$(hub_entry "$u")"
@@ -1096,6 +1110,7 @@ hub_remove() {
   loginctl disable-linger "$u" 2>/dev/null || true
   loginctl terminate-user "$u" 2>/dev/null || true
   hub_ufw_active && ufw delete allow in on tailscale0 to any port "$port" proto tcp >/dev/null 2>&1 || true
+  rm -f "/etc/sudoers.d/lobsters-cli-hub-$u"
   if [ $keep = 1 ]; then userdel "$u" 2>/dev/null || need "userdel $u failed (still logged in?)"; else userdel -r "$u" 2>/dev/null || need "userdel -r $u failed (still logged in?)"; fi
   grep -v "^$u " "$HUB_PEOPLE" > "$HUB_PEOPLE.tmp"; mv -f "$HUB_PEOPLE.tmp" "$HUB_PEOPLE"; chmod 0600 "$HUB_PEOPLE"
   echo "removed $u from this hub. Their tailnet access ends when they leave the Workspace; to end it sooner, remove them in the Tailscale console."
@@ -1130,7 +1145,7 @@ hub_check() {
     id "$u" >/dev/null 2>&1 || { need "no account; hub add $e"; continue; }
     h="$(getent passwd "$u" | cut -d: -f6)"
     [ -f "/var/lib/systemd/linger/$u" ] && ok "linger" || need "no linger: loginctl enable-linger $u"
-    if [ "$s" = yes ]; then id -nG "$u" | tr ' ' '\n' | grep -qx wheel && ok "sudo" || need "not in wheel: hub add $e --sudo"; fi
+    if [ "$s" = yes ]; then [ -f "/etc/sudoers.d/lobsters-cli-hub-$u" ] && ok "sudo" || need "no sudoers entry: hub add $e --sudo"; fi
     [ -f "$h/.config/systemd/user/orca-serve.service" ] && ok "orca-serve unit" || need "no orca-serve unit: hub add $e"
     paired="$(jq 'if type == "array" then length else 0 end' "$h/.config/orca/orca-devices.json" 2>/dev/null || echo 0)"
     case "$(hub_user_systemctl "$u" is-active orca-serve.service 2>/dev/null)" in
