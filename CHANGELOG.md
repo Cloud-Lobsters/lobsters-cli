@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- `setup` puts your machine on the company tailnet: installs Tailscale if it is missing, signs you in with your Workspace account (or says the device is waiting for an admin's approval), and adds `ssh lobster`, which lands in your own account on the hub.
+
 - `setup` in the retired shared account of a hub does nothing to it (it used to start that account's Orca server again); `hub init --retire` takes the unit out for good and remembers the account in `hub.conf`.
 
 ## 0.6.1 (2026-11-02)

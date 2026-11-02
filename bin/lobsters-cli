@@ -42,6 +42,8 @@ SIGNER="release@cloudlobsters.com"                 # principal in allowed_signer
 NAMESPACE="lobsters-cli"                           # ssh-keygen -Y namespace
 LEGACY_NAMESPACE="claude-lobsters-cli"             # releases up to the rename are signed in this one
 TAGLINE="the team setup for every machine"
+TAILNET_DOMAIN="cloudlobsters.com"                 # everyone signs in to Tailscale with their Workspace account
+HUB_NAME="bin-postboot"                            # the shared agent box's name on the tailnet (ssh lobster)
 
 case "$(uname -s)" in
   Darwin) OS=mac;   MANAGED_DIR="/Library/Application Support/ClaudeCode/managed-settings.d" ;;
@@ -754,6 +756,65 @@ cmd_token() {
   esac
 }
 
+# ---- the tailnet -------------------------------------------------------------------------
+# Every person's machine is on the company tailnet: that is how they reach the hub (Tailscale
+# SSH, by identity) and the office. setup installs Tailscale, gets them signed in with their
+# Workspace account, says when the device is waiting for an admin's approval, and writes an
+# `ssh lobster` entry that lands in their own account on the hub. Not on the hub itself.
+ts_cli() {
+  if command -v tailscale >/dev/null; then echo tailscale
+  elif [ -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]; then echo /Applications/Tailscale.app/Contents/MacOS/Tailscale
+  else return 1; fi
+}
+setup_tailnet() {
+  step "7. Tailscale (the company tailnet: the hub and the office)"
+  [ $HUB = 1 ] && { ok "this is the hub"; return; }
+  local ts st state login me host entry="$HOME/.ssh/config"
+  if ! ts="$(ts_cli)"; then
+    if act "install Tailscale"; then
+      case $OS in
+        mac)   command -v brew >/dev/null && brew install --cask tailscale >/dev/null 2>&1 || need "install Tailscale from tailscale.com/download (or: brew install --cask tailscale)" ;;
+        linux) if command -v pacman >/dev/null; then sudo pacman -S --needed --noconfirm tailscale >/dev/null 2>&1 && sudo systemctl enable --now tailscaled >/dev/null 2>&1
+               elif command -v apt-get >/dev/null; then curl -fsSL https://tailscale.com/install.sh | sh >/dev/null 2>&1
+               fi || need "install Tailscale: tailscale.com/download" ;;
+      esac
+      ts="$(ts_cli)" || return
+    else return; fi
+  fi
+  [ $OS = mac ] && ! pgrep -xq Tailscale && [ $MODE != check ] && open -a Tailscale 2>/dev/null && sleep 2
+  st="$("$ts" status --json 2>/dev/null)" || st=""
+  state="$(echo "$st" | jq -r '.BackendState // "Stopped"' 2>/dev/null)"
+  login="$(echo "$st" | jq -r '.Self.UserProfile.LoginName // empty' 2>/dev/null)"
+  case "$state" in
+    Running)
+      case "$login" in
+        *@"$TAILNET_DOMAIN") ok "on the company tailnet as $login" ;;
+        "")                  ok "on the tailnet" ;;
+        *) need "Tailscale is signed in as $login, not a @$TAILNET_DOMAIN account: $ts login (Google, your work account), then $ts switch to it"; return ;;
+      esac ;;
+    NeedsMachineAuth) need "this device is waiting for an admin to approve it on the tailnet (ask Nemo or Duncan); then run setup again"; return ;;
+    NeedsLogin|NoState|Stopped|"")
+      if act "sign in to the company tailnet (a browser opens: Google, your @$TAILNET_DOMAIN account)"; then
+        if [ $OS = mac ]; then open -a Tailscale 2>/dev/null; need "sign in from the Tailscale menu-bar icon with your @$TAILNET_DOMAIN Google account, then run setup again"
+        else sudo "$ts" up --accept-routes 2>&1 | sed 's/^/    /'; fi
+        st="$("$ts" status --json 2>/dev/null)"; state="$(echo "$st" | jq -r '.BackendState // ""')"
+        [ "$state" = Running ] && ok "on the tailnet" || { [ "$state" = NeedsMachineAuth ] && need "signed in; the device is waiting for an admin to approve it. Then run setup again"; return; }
+      else return; fi ;;
+    *) need "Tailscale is $state; $ts status says more"; return ;;
+  esac
+  # ssh lobster → the person's own account on the hub, by Tailscale identity (no key).
+  me="${login%@*}"; [ -n "$me" ] || return
+  if [ -f "$entry" ] && grep -qiE '^Host[[:space:]]+(.*[[:space:]])?lobster([[:space:]]|$)' "$entry"; then ok "ssh lobster is configured"
+  elif act "add 'ssh lobster' to ~/.ssh/config (your account $me on $HUB_NAME)"; then
+    mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"
+    { [ -s "$entry" ] && echo; printf 'Host lobster
+    HostName %s
+    User %s
+' "$HUB_NAME" "$me"; } >> "$entry"; chmod 600 "$entry"
+    ok "ssh lobster lands in your account on the hub"
+  fi
+}
+
 run_setup() {
   case $MODE in
     check)  lobster_banner "v$(installed_version)" "check only: nothing changes" ;;
@@ -784,7 +845,7 @@ run_setup() {
     return
   fi
   setup_migrate_old
-  setup_managed; setup_rules; setup_model; setup_mcp; setup_extras; setup_token
+  setup_managed; setup_rules; setup_model; setup_mcp; setup_extras; setup_token; setup_tailnet
   [ $MODE = check ] || { mkdir -p "$STATE_DIR"; touch "$STATE_DIR/last-sync"; cmd_status >/dev/null; }
   step "Done"
   if [ $todo = 0 ]; then echo "  All set (lobsters-cli $(installed_version)). Start a new Claude Code session; accept the one-time managed-hook dialog; sign in to Ref with /mcp."

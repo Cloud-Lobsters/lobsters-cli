@@ -49,7 +49,9 @@ op item get "Service Account Auth Token: dev-readers" --vault Engineering --fiel
 
 (`hub init` lets wheel run `hub token` without a password; it only ever writes.) The same with `hub token tailscale` and an OAuth client (scopes `users:read`, `devices:core`) if you want `hub tailnet EMAIL --approve` to approve a person's pending devices from the box.
 
-Per person: `sudo lobsters-cli hub add name@cloudlobsters.com [--sudo]`. It creates the account (linger on, so their services run with nobody logged in), copies Orca in, writes their `orca-serve` user service with the next free port, opens that port on `tailscale0`, places the token, and prints the three things the person does: `ssh name@lobster`, `lobsters-cli setup` (installs Claude Code into the home, asks for `gh auth login` as themselves, sets their git identity from it, then says to run `claude` and sign in as the company account), and `orca-pair` (pair their phone or laptop, Ctrl-C, start the service). `hub list`, `hub check` and `hub remove EMAIL` do what they say. No invite is needed on the tailnet: a Workspace account signs in and is in.
+On their own machine, `lobsters-cli setup` installs Tailscale, signs them in with their Workspace account (and says so when the device is waiting for an admin's approval), and adds `ssh lobster`. No invite exists on a Workspace tailnet; signing in is joining.
+
+Per person on the hub: `sudo lobsters-cli hub add name@cloudlobsters.com [--sudo]`. It creates the account (linger on, so their services run with nobody logged in), copies Orca in, writes their `orca-serve` user service with the next free port, opens that port on `tailscale0`, places the token, and prints the three things the person does: `ssh name@lobster`, `lobsters-cli setup` (installs Claude Code into the home, asks for `gh auth login` as themselves, sets their git identity from it, then says to run `claude` and sign in as the company account), and `orca-pair` (pair their phone or laptop, Ctrl-C, start the service). `hub list`, `hub check` and `hub remove EMAIL` do what they say. No invite is needed on the tailnet: a Workspace account signs in and is in.
 
 ## How it works
 
