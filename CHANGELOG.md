@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- `setup` signs you in to GitHub itself when you are not (device code to type at github.com/login/device), instead of stopping and telling you the command.
+
 ## 0.6.5 (2026-11-02)
 
 - `orca-pair` on the hub finishes the job: it waits for the phone or laptop to pair, then starts your Orca server. No Ctrl-C, no systemctl. Re-running `hub add` for an existing account gives it the new script.

@@ -287,9 +287,15 @@ setup_prereqs() {
   else die "Claude Code is missing: curl -fsSL https://claude.ai/install.sh | bash"; fi
   command -v gh >/dev/null     && ok "GitHub CLI" || die "gh is missing ($([ $HUB = 1 ] && echo 'an admin runs: sudo lobsters-cli hub init' || echo 'install.sh installs it'))"
   [ $MODE = remove ] && return
-  # A fresh hub account has signed in to nothing yet; `check` there reports instead of stopping.
+  # Not signed in: with a terminal, run the login here (device code: open github.com/login/device
+  # on any browser, type the code). On a hub nothing opens a browser on the box itself.
   if gh auth status >/dev/null 2>&1; then ok "GitHub (gh) signed in"
-  elif [ $HUB = 1 ] && [ $MODE = check ]; then need "GitHub: gh auth login (as yourself; setup asks for it)"; return
+  elif [ $MODE = install ] && [ -t 0 ]; then
+    doing "sign in to GitHub as yourself: type the code it shows at github.com/login/device"
+    if env ${HUB:+$([ $HUB = 1 ] && echo BROWSER=true)} gh auth login --web --git-protocol https --scopes user:email </dev/tty && gh auth status >/dev/null 2>&1; then
+      ok "GitHub (gh) signed in as $(gh api user --jq .login 2>/dev/null)"
+    else die "GitHub sign-in did not complete; run setup again"; fi
+  elif [ $HUB = 1 ] && [ $MODE = check ]; then need "GitHub: not signed in (setup signs you in)"; return
   else die "sign in to GitHub first: gh auth login"; fi
   if git config --global --get-all credential.https://github.com.helper 2>/dev/null | grep -q 'gh auth'; then ok "git uses your gh login"
   elif act "let git use your gh login, so the private rules repo can be cloned"; then gh auth setup-git; fi
