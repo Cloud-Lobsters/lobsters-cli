@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- `ssh lobster` uses the hub's Tailscale IP, not its MagicDNS name: NordLayer replaces the Mac's DNS and the name never resolved, so `ssh lobster` sat there doing nothing. An entry from an earlier setup is corrected.
+
 ## 0.6.6 (2026-11-02)
 
 - `orca-pair` counts a device as paired only once it has connected (Orca writes the record when it prints the link), and drops records that never connected when it ends. The paired-device counts in `setup` and `hub check` do the same.

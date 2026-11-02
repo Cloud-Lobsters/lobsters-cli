@@ -44,6 +44,7 @@ LEGACY_NAMESPACE="claude-lobsters-cli"             # releases up to the rename a
 TAGLINE="the team setup for every machine"
 TAILNET_DOMAIN="cloudlobsters.com"                 # everyone signs in to Tailscale with their Workspace account
 HUB_NAME="bin-postboot"                            # the shared agent box's name on the tailnet (ssh lobster)
+HUB_IP="100.119.0.65"                              # its Tailscale IP: ssh lobster uses this, since a VPN (NordLayer) can hide MagicDNS names
 
 case "$(uname -s)" in
   Darwin) OS=mac;   MANAGED_DIR="/Library/Application Support/ClaudeCode/managed-settings.d" ;;
@@ -818,13 +819,15 @@ setup_tailnet() {
   esac
   # ssh lobster → the person's own account on the hub, by Tailscale identity (no key).
   me="${login%@*}"; [ -n "$me" ] || return
-  if [ -f "$entry" ] && grep -qiE '^Host[[:space:]]+(.*[[:space:]])?lobster([[:space:]]|$)' "$entry"; then ok "ssh lobster is configured"
-  elif act "add 'ssh lobster' to ~/.ssh/config (your account $me on $HUB_NAME)"; then
+  if [ -f "$entry" ] && grep -qiE '^Host[[:space:]]+(.*[[:space:]])?lobster([[:space:]]|$)' "$entry"; then
+    # An earlier setup wrote the MagicDNS name; a VPN that overrides DNS (NordLayer) cannot resolve it.
+    if grep -qE "^[[:space:]]+HostName[[:space:]]+$HUB_NAME\$" "$entry" && act "point ssh lobster at the hub's Tailscale IP (MagicDNS names vanish under NordLayer)"; then
+      sed -i.bak -E "s/^([[:space:]]+HostName[[:space:]]+)$HUB_NAME\$/\\1$HUB_IP/" "$entry" && rm -f "$entry.bak"
+    fi
+    ok "ssh lobster is configured"
+  elif act "add 'ssh lobster' to ~/.ssh/config (your account $me on $HUB_IP)"; then
     mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"
-    { [ -s "$entry" ] && echo; printf 'Host lobster
-    HostName %s
-    User %s
-' "$HUB_NAME" "$me"; } >> "$entry"; chmod 600 "$entry"
+    { [ -s "$entry" ] && echo; printf 'Host lobster\n    HostName %s\n    User %s\n' "$HUB_IP" "$me"; } >> "$entry"; chmod 600 "$entry"
     ok "ssh lobster lands in your account on the hub"
   fi
 }
