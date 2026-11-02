@@ -98,6 +98,28 @@ die()   { printf 'lobsters-cli: %s\n' "$1" >&2; exit 1; }
 # act: in --check mode only report; otherwise say it and return 0 so the caller does it.
 act()   { if [ $MODE = check ]; then need "$1"; return 1; fi; doing "$1"; return 0; }
 write_through() { local tmp; tmp="$(mktemp)"; cat > "$tmp" && cat "$tmp" > "$1"; rm -f "$tmp"; }
+# menu_pick DEFAULT OPTION...: a cursor menu on the terminal (arrows or j/k, a digit, Enter).
+# Sets MENU_PICK to the 1-based choice. Without a terminal it is the default, unasked.
+menu_pick() {
+  local sel="$1"; shift; local -a opts=("$@"); local n=${#opts[@]} i key
+  MENU_PICK=$sel
+  [ -r /dev/tty ] && [ -w /dev/tty ] || return 0
+  draw() { for ((i = 1; i <= n; i++)); do
+    if [ "$i" = "$sel" ]; then printf '    \033[36m❯ %s\033[0m\033[K\n' "${opts[i-1]}"; else printf '      %s\033[K\n' "${opts[i-1]}"; fi; done >/dev/tty; }
+  printf '\033[?25l' >/dev/tty; draw
+  while IFS= read -rsn1 key </dev/tty; do
+    case "$key" in
+      $'\x1b') IFS= read -rsn2 -t 0.2 key </dev/tty || key=""
+               case "$key" in '[A'|'OA') sel=$((sel > 1 ? sel - 1 : n)) ;; '[B'|'OB') sel=$((sel < n ? sel + 1 : 1)) ;; esac ;;
+      k|K) sel=$((sel > 1 ? sel - 1 : n)) ;;
+      j|J) sel=$((sel < n ? sel + 1 : 1)) ;;
+      [1-9]) [ "$key" -le "$n" ] && sel=$key ;;
+      ""|$'\n'|$'\r') break ;;
+    esac
+    printf '\033[%dA' "$n" >/dev/tty; draw
+  done
+  printf '\033[?25h' >/dev/tty; MENU_PICK=$sel
+}
 tilde() { echo "${1/#"$HOME"/\~}"; }
 sha256() { if command -v shasum >/dev/null; then shasum -a 256 "$@"; else sha256sum "$@"; fi; }
 # version_lt A B: true when A < B, numeric per dot-separated field.
@@ -295,17 +317,16 @@ setup_prereqs() {
     # Two ways in. The web login is the GitHub CLI OAuth app: its smallest grant is repo +
     # read:org, i.e. every repository the person can see, on every org. On a shared machine
     # the fine-grained token is the right one: it can be limited to the Cloud-Lobsters org.
-    local choice dflt tok
-    dflt="$([ $HUB = 1 ] && echo t || echo w)"
-    echo "    GitHub sign-in, as yourself:"
-    echo "      [w] web login (GitHub CLI app: access to every repo you can see, on every org)"
-    echo "      [t] fine-grained token limited to Cloud-Lobsters$([ $HUB = 1 ] && echo ' (recommended on this shared machine)')"
-    echo "          make one at github.com/settings/personal-access-tokens/new: Resource owner Cloud-Lobsters,"
-    echo "          all repositories; Contents and Pull requests read+write, Workflows read+write, Metadata read;"
-    echo "          Account permissions: Email addresses read. Expiry as the org policy allows."
-    printf '    web or token? [%s] ' "$dflt"; IFS= read -r choice </dev/tty; choice="${choice:-$dflt}"
-    case "$choice" in
-      t|T)
+    local tok
+    echo "    GitHub sign-in, as yourself. A fine-grained token can be limited to Cloud-Lobsters; the web"
+    echo "    login (GitHub CLI app) always gets every repo you can see, on every org."
+    echo "    Token: github.com/settings/personal-access-tokens/new, Resource owner Cloud-Lobsters, all repositories;"
+    echo "    Contents and Pull requests read+write, Workflows read+write, Metadata read; Email addresses read."
+    menu_pick "$([ $HUB = 1 ] && echo 1 || echo 2)" \
+      "Fine-grained token limited to Cloud-Lobsters$([ $HUB = 1 ] && echo '  (recommended on this shared machine)')" \
+      "Web login in the browser  (every repo you can see)"
+    case "$MENU_PICK" in
+      1)
         printf '    paste the token (not shown): '; IFS= read -rs tok </dev/tty; echo
         if printf '%s' "$tok" | gh auth login --with-token --git-protocol https 2>&1 | sed 's/^/    /' && gh auth status >/dev/null 2>&1; then
           gh auth setup-git >/dev/null 2>&1

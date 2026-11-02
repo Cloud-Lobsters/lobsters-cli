@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- The GitHub sign-in choice in `setup` is a cursor menu (arrow keys, Enter), not a letter to type.
+
 ## 0.6.8 (2026-11-02)
 
 - GitHub sign-in in `setup` offers a fine-grained token limited to the Cloud-Lobsters org (the default on the hub) beside the web login, whose smallest grant is every repository you can see. Already signed in with the web login? `gh auth logout`, then `lobsters-cli setup`.
