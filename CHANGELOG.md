@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+- On a Mac, `setup` installs the Tailscale app (`brew install --cask tailscale-app`), not Homebrew's `tailscale` cask, which is now the CLI-only build and does not work as a laptop client; a machine that got that cask has it replaced.
+
 ## 0.6.3 (2026-11-02)
 
 - A new hub account runs `lobsters-cli setup` by itself at its first logins, until it has completed once; the person only answers the GitHub prompt.
