@@ -8,6 +8,8 @@ version and the one it is about to install, read from the signed tarball.
 
 ## Unreleased
 
+## 0.7.0 (2026-11-03)
+
 - Sync the team rules whenever you like, not only at a session start: `lobsters-cli sync` pulls them, relinks skills and agents and refreshes the status. The 🦞 menu on a Mac has a "Sync rules now" item, and on Omarchy a click on the Waybar module does the same (right-click now opens the upgrade; update the module config from `share/waybar/README.md`). The result arrives as a desktop notification.
 
 ## 0.6.9 (2026-11-02)
