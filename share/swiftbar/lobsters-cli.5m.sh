@@ -30,4 +30,7 @@ case "$state" in
   update-available) echo "Upgrade now | bash=$CLI param1=upgrade terminal=true" ;;
   not-installed)    echo "Run lobsters-cli setup | bash=$CLI param1=setup terminal=true" ;;
 esac
+# Pull the rules now, without a terminal: the result arrives as a notification, and the menu
+# re-reads status.json straight after.
+[ "$state" = not-installed ] || echo "Sync rules now | bash=$CLI param1=sync param2=--notify terminal=false refresh=true"
 echo "Check | bash=$CLI param1=check terminal=true"

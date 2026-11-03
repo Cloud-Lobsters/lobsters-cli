@@ -21,6 +21,7 @@
 #      prints one note for the top of the session when something changed.
 #
 #   rules-sync --link-only    just step 2 (lobsters-cli setup calls this)
+#   `lobsters-cli sync` runs the whole thing by hand, between sessions (the menu bar's sync button).
 
 set -u
 export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"

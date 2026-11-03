@@ -14,6 +14,8 @@
 #   lobsters-cli upgrade [X.Y.Z]    fetch a release, verify its signature, show the diff, install
 #   lobsters-cli status             refresh and print ~/.local/state/cloud-lobsters/status.json
 #                                   (the newest-release lookup is cached for 30 minutes)
+#   lobsters-cli sync [--notify]    pull the team rules now (what the session hook does); --notify
+#                                   puts the result in a desktop notification (the menu bar uses it)
 #   lobsters-cli remove             take the team setup out again
 #   lobsters-cli statusline         one short token for the Claude Code status line
 #   lobsters-cli token sync|check   the shared dev-readers 1Password token into the keychain / which Environments it reads
@@ -264,6 +266,37 @@ cmd_status() {
   sync="$([ -f "$STATE_DIR/last-sync" ] && date -u -r "$STATE_DIR/last-sync" +%FT%TZ 2>/dev/null)"
   write_status "$lat" "$head" "$sync"
   jq . "$STATE"
+}
+
+# `lobsters-cli sync` runs the session hook by hand: pull the rules, relink skills and agents,
+# refresh status.json. Prints the hook's note (who changed what) when something changed, else
+# one line. With --notify the same text goes to a desktop notification, so the menu bar
+# (SwiftBar) and Waybar can offer a sync button that needs no terminal.
+notify() { # $1 title, $2 body
+  case $OS in
+    mac)   command -v osascript >/dev/null && osascript - "$1" "$2" <<'EOF' >/dev/null 2>&1
+on run argv
+  display notification (item 2 of argv) with title (item 1 of argv)
+end run
+EOF
+      ;;
+    linux) command -v notify-send >/dev/null && notify-send -a lobsters-cli "$1" "$2" >/dev/null 2>&1 ;;
+  esac
+  return 0
+}
+cmd_sync() {
+  local mark out msg head sync title
+  [ -x "$LIBEXEC/rules-sync" ] || die "the session hook is not installed: run lobsters-cli setup"
+  mkdir -p "$STATE_DIR"; mark="$(mktemp)"
+  out="$("$LIBEXEC/rules-sync" 2>/dev/null)"
+  msg="$(printf '%s' "$out" | jq -r '.systemMessage // empty' 2>/dev/null)"
+  head="$(jq -r '.rules.head // "?"' "$STATE" 2>/dev/null)"
+  sync="$(jq -r '.rules.lastSync // "never"' "$STATE" 2>/dev/null)"
+  if [ -n "$msg" ]; then title="Team config"
+  elif [ "$STATE_DIR/last-sync" -nt "$mark" ]; then title="Team config up to date"; msg="rules at $head, synced just now"
+  else title="Team config not synced"; msg="could not reach GitHub; rules at $head, last synced $sync"; fi
+  rm -f "$mark"
+  if [ "${1:-}" = --notify ]; then notify "$title" "$msg"; else printf '%s\n%s\n' "$title" "$msg" | sed '2,$s/^/  /'; fi
 }
 
 # The status line. `setup` points your statusLine here and keeps the command you had in
@@ -1394,11 +1427,12 @@ case "${1:-}" in
   remove)        MODE=remove;  run_setup ;;
   upgrade)       cmd_upgrade "${2:-}" "${3:-}" ;;
   status)        cmd_status ;;
+  sync)          cmd_sync "${2:-}" ;;
   statusline)    cmd_statusline ;;
   token)         cmd_token "${2:-}" "${3:-}" ;;
   hub)           shift; cmd_hub "$@" ;;
   install-files) cmd_install_files "${2:?install-files needs a source directory}" ;;
   version|--version|-v) installed_version; echo ;;
   *) lobster_banner "v$(installed_version)" "$TAGLINE"
-     sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
+     sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 1 ;;
 esac

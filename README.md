@@ -24,6 +24,7 @@ Before you start: the 1Password app signed in with **Integrate with 1Password CL
 | `lobsters-cli check` | report only, change nothing |
 | `lobsters-cli upgrade [X.Y.Z]` | fetch a release, verify it, show what changes, install it (asks for your password) |
 | `lobsters-cli status` | refresh and print `~/.local/state/cloud-lobsters/status.json` |
+| `lobsters-cli sync [--notify]` | pull the team rules now, relink skills and agents, refresh `status.json`: what the session hook does, without a session. Prints who changed what; `--notify` puts that in a desktop notification instead. The SwiftBar menu's "Sync rules now" and a click on the Waybar module run it |
 | `lobsters-cli remove` | take the team setup out again |
 | `lobsters-cli token sync` | engineers only: copy the team's shared `dev-readers` 1Password service-account token from the Engineering vault into your OS keychain (`setup` does this too when it can, and otherwise just says so). The vault is the only way in; `--shared` replaces a different token already in the keychain |
 | `lobsters-cli hub …` | admins, on the shared agent box: one Unix account per person, see [Shared agent box](#shared-agent-box-the-hub) |
